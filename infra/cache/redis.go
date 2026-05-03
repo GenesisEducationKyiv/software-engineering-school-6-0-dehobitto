@@ -22,7 +22,7 @@ func (c *RedisCache) Get(ctx context.Context, key string) (string, error) {
 	return c.client.Get(ctx, key).Result()
 }
 
-func (c *RedisCache) Set(ctx context.Context, key string, value string, ttl time.Duration) error {
+func (c *RedisCache) Set(ctx context.Context, key, value string, ttl time.Duration) error {
 	return c.client.Set(ctx, key, value, ttl).Err()
 }
 

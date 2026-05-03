@@ -171,7 +171,6 @@ func (r *Repository) GetSubscribers(ctx context.Context, repo string) ([]string,
 		var s string
 
 		err := rows.Scan(&s)
-
 		if err != nil {
 			return nil, fmt.Errorf("error while scanning rows: %w", err)
 		}

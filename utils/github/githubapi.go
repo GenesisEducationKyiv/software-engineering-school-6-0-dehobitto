@@ -19,7 +19,7 @@ func setGitHubAPIBase(base string) {
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func GetLatestTag(ctx context.Context, repo string, token string, rc *cache.RedisCache) (string, error) {
+func GetLatestTag(ctx context.Context, repo, token string, rc *cache.RedisCache) (string, error) {
 	cacheKey := "github:latest_tag:" + repo
 
 	if rc != nil {
@@ -71,7 +71,7 @@ func GetLatestTag(ctx context.Context, repo string, token string, rc *cache.Redi
 	return release.LastSeenTag, nil
 }
 
-func CheckIfRepoExists(ctx context.Context, repo string, token string) (*http.Response, error) {
+func CheckIfRepoExists(ctx context.Context, repo, token string) (*http.Response, error) {
 	link := fmt.Sprintf("%s/repos/%s", GitHubAPIBase, repo)
 
 	req, err := http.NewRequestWithContext(ctx, "HEAD", link, nil)
