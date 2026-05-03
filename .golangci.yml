@@ -36,10 +36,6 @@ linters:
   settings:
     gocyclo:
       min-complexity: 15
-      govet:
-        enable-all: true
-      errorlint:
-        errorf: true
 
 issues:
   max-issues-per-linter: 0
