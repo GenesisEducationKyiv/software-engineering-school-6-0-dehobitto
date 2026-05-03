@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"subber/config"
 	"subber/infra/cache"
@@ -10,21 +11,26 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatalf("App error: %v", err)
+	}
+}
+
+func run() error {
 	cfg := config.LoadConfig()
 
 	connectionPool, err := database.Connect(cfg)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("connection to database failed: %w", err)
 	}
 	defer connectionPool.Close()
 
 	err = database.Migrate(connectionPool, cfg.SchemasPath)
 	if err != nil {
-		log.Fatalf("Migration failed: %v", err)
+		return fmt.Errorf("migration failed: %w", err)
 	}
 
 	repo := database.NewRepository(connectionPool)
-
 	redisCache := cache.NewRedisCache(cfg.RedisAddr)
 
 	jobsChannel := make(chan workers.NotificationJob, 100)
@@ -38,6 +44,8 @@ func main() {
 	router := routes.SetupRouter(repo, cfg, jobsChannel, redisCache)
 
 	if err = router.Run(":" + cfg.ServerPort); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		return fmt.Errorf("failed to start server: %w", err)
 	}
+
+	return nil
 }
