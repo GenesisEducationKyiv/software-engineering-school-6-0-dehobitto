@@ -1,9 +1,11 @@
+// Package config provides configuration loading and management for the application.
 package config
 
 import (
 	"os"
 )
 
+// Config contains all app settings.
 type Config struct {
 	DBHost       string
 	DBPort       string
@@ -18,8 +20,11 @@ type Config struct {
 	SMTPPassword string
 	RedisAddr    string
 	APIKey       string
+	SchemasPath  string
+	BaseURL      string
 }
 
+// LoadConfig reads .env and returns filled Config structure.
 func LoadConfig() *Config {
 	return &Config{
 		DBHost:       getEnv("DB_HOST", "localhost"),
@@ -35,6 +40,8 @@ func LoadConfig() *Config {
 		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
 		RedisAddr:    getEnv("REDIS_ADDR", "redis:6379"),
 		APIKey:       getEnv("API_KEY", ""),
+		SchemasPath:  getEnv("SCHEMAS_PATH", "infra/database/schemas.sql"),
+		BaseURL:      getEnv("BASE_URL", "http://localhost:8080"),
 	}
 }
 

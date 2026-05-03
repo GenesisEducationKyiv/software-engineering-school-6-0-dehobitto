@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// UnsubscribeByToken removes a subscription identified by the URL token parameter.
 func (h *Handler) UnsubscribeByToken(c *gin.Context) {
 	token := c.Param("token")
 

@@ -1,3 +1,4 @@
+// Package middleware provides HTTP middleware components for authentication and metrics.
 package middleware
 
 import (
@@ -6,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// APIKeyAuth returns middleware that validates the X-API-Key header against the configured key.
 func APIKeyAuth(apiKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if apiKey == "" {

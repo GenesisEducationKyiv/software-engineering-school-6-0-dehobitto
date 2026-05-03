@@ -1,3 +1,4 @@
+// Package database provides PostgreSQL connection management and data access.
 package database
 
 import (
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Connect establishes a connection pool to the PostgreSQL database using the provided config.
 func Connect(cfg *config.Config) (*pgxpool.Pool, error) {
 	dsn := getDSN(cfg)
 
@@ -27,7 +29,9 @@ func Connect(cfg *config.Config) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+// Migrate reads the SQL schema file and applies it to the database.
 func Migrate(pool *pgxpool.Pool, filePath string) error {
+	//nolint:gosec // filePath comes from internal config, not user input
 	schema, err := os.ReadFile(filePath)
 	if err != nil {
 		return err

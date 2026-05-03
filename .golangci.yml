@@ -1,0 +1,43 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: false
+  concurrency: 4
+
+formatters:
+  enable:
+    - goimports
+  settings:
+    gofumpt:
+      extra-rules: true
+    goimports:
+      local-prefixes: [subber]
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+
+    - bodyclose
+    - sqlclosecheck
+
+    - errorlint
+    - gosec
+
+    - gocyclo
+    - gocritic
+    - revive
+    - whitespace
+
+  settings:
+    gocyclo:
+      min-complexity: 15
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
