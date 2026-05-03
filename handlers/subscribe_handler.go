@@ -14,6 +14,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// Subscribe processes the subscription request. It validates the input data,
+// checks if the repository exists on GitHub, saves the subscription to the database,
+// and sends a confirmation email.
 func (h *Handler) Subscribe(c *gin.Context) {
 	var newOwnerRepo models.Subscription
 
@@ -81,7 +84,7 @@ func (h *Handler) Subscribe(c *gin.Context) {
 }
 
 func (h *Handler) sendConfirmation(email, token string) {
-	confirmURL := fmt.Sprintf("http://localhost:%s/api/confirm/%s", h.cfg.ServerPort, token)
+	confirmURL := fmt.Sprintf("%s/api/confirm/%s", h.cfg.BaseURL, token)
 
 	message := fmt.Sprintf(
 		"Welcome! Please confirm your subscription to GitHub repository updates by clicking here: %s",
