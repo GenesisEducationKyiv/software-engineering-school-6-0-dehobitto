@@ -7,7 +7,6 @@ run:
 
 formatters:
   enable:
-    - gofumpt
     - goimports
   settings:
     gofumpt:
