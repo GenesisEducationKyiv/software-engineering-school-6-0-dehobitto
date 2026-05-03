@@ -18,6 +18,7 @@ type Config struct {
 	SMTPPassword string
 	RedisAddr    string
 	APIKey       string
+	SchemasPath  string
 }
 
 func LoadConfig() *Config {
@@ -35,6 +36,7 @@ func LoadConfig() *Config {
 		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
 		RedisAddr:    getEnv("REDIS_ADDR", "redis:6379"),
 		APIKey:       getEnv("API_KEY", ""),
+		SchemasPath:  getEnv("SCHEMAS_PATH", "infra/database/schemas.sql"),
 	}
 }
 
