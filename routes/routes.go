@@ -1,3 +1,4 @@
+// Package routes defines HTTP routing and endpoint registration.
 package routes
 
 import (
@@ -12,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// SetupRouter creates and configures the Gin engine with all application routes.
 func SetupRouter(repo *database.Repository, cfg *config.Config, jobs chan<- workers.NotificationJob, rc *cache.RedisCache) *gin.Engine {
 	r := gin.Default()
 	_ = r.SetTrustedProxies(nil)

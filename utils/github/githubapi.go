@@ -1,3 +1,4 @@
+// Package github provides helpers for interacting with the GitHub API.
 package github
 
 import (
@@ -11,6 +12,7 @@ import (
 	"subber/models"
 )
 
+// GitHubAPIBase is the base URL of the GitHub API. It can be overridden for testing.
 var GitHubAPIBase = "https://api.github.com"
 
 func setGitHubAPIBase(base string) {
@@ -19,6 +21,7 @@ func setGitHubAPIBase(base string) {
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
+// GetLatestTag fetches the latest release tag for a GitHub repo, using cache when available.
 func GetLatestTag(ctx context.Context, repo, token string, rc *cache.RedisCache) (string, error) {
 	cacheKey := "github:latest_tag:" + repo
 
@@ -35,6 +38,7 @@ func GetLatestTag(ctx context.Context, repo, token string, rc *cache.RedisCache)
 	if err != nil {
 		return "", err
 	}
+
 	req.Header.Set("User-Agent", "Go-Subber-App")
 
 	if token != "" {
@@ -71,6 +75,7 @@ func GetLatestTag(ctx context.Context, repo, token string, rc *cache.RedisCache)
 	return release.LastSeenTag, nil
 }
 
+// CheckIfRepoExists sends a HEAD request to verify a GitHub repository exists.
 func CheckIfRepoExists(ctx context.Context, repo, token string) (*http.Response, error) {
 	link := fmt.Sprintf("%s/repos/%s", GitHubAPIBase, repo)
 

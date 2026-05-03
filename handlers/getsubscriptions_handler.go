@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// GetSubscriptions looks for all repos email signed to, responds with found repos.
 func (h *Handler) GetSubscriptions(c *gin.Context) {
 	email := c.Query("email")
 

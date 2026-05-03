@@ -27,6 +27,7 @@ var (
 		[]string{"method", "path"},
 	)
 
+	// EmailsSentTotal tracks the total number of successfully sent emails.
 	EmailsSentTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "emails_sent_total",
@@ -34,6 +35,7 @@ var (
 		},
 	)
 
+	// EmailsFailedTotal tracks the total number of failed email sends.
 	EmailsFailedTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "emails_failed_total",
@@ -41,6 +43,7 @@ var (
 		},
 	)
 
+	// ScanCyclesTotal tracks the total number of completed scan cycles.
 	ScanCyclesTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "scan_cycles_total",
@@ -49,6 +52,7 @@ var (
 	)
 )
 
+// PrometheusMiddleware returns middleware that records HTTP request metrics.
 func PrometheusMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()

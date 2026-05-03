@@ -1,3 +1,4 @@
+// Package handlers provides functions for all API endpoints
 package handlers
 
 import (
@@ -7,6 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// ConfirmByToken extracts the token from params, validates it, looks it up in the database, and responds with the result.
 func (h *Handler) ConfirmByToken(c *gin.Context) {
 	token := c.Param("token")
 

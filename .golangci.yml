@@ -13,7 +13,7 @@ formatters:
     gofumpt:
       extra-rules: true
     goimports:
-      local-prefixes: subber
+      local-prefixes: [subber]
 
 linters:
   default: none
@@ -34,13 +34,13 @@ linters:
     - revive
     - whitespace
 
-settings:
-  gocyclo:
-    min-complexity: 15
-    govet:
-      enable-all: true
-    errorlint:
-      errorf: true
+  settings:
+    gocyclo:
+      min-complexity: 15
+      govet:
+        enable-all: true
+      errorlint:
+        errorf: true
 
 issues:
   max-issues-per-linter: 0

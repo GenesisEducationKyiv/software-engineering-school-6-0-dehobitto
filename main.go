@@ -1,8 +1,10 @@
+// Package main is the entry point of the Subber application.
 package main
 
 import (
 	"fmt"
 	"log"
+
 	"subber/config"
 	"subber/infra/cache"
 	"subber/infra/database"

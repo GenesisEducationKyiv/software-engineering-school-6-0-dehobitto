@@ -13,6 +13,7 @@ import (
 	"subber/utils/github"
 )
 
+// ScannerWorker periodically checks GitHub repos for new releases.
 type ScannerWorker struct {
 	repo  *database.Repository
 	cfg   *config.Config
@@ -20,6 +21,7 @@ type ScannerWorker struct {
 	cache *cache.RedisCache
 }
 
+// NewScannerWorker creates a new ScannerWorker with the given dependencies.
 func NewScannerWorker(repo *database.Repository, cfg *config.Config, jobs chan<- NotificationJob, rc *cache.RedisCache) *ScannerWorker {
 	return &ScannerWorker{
 		repo:  repo,
@@ -29,6 +31,7 @@ func NewScannerWorker(repo *database.Repository, cfg *config.Config, jobs chan<-
 	}
 }
 
+// StartScanner begins the periodic scan loop.
 func (w *ScannerWorker) StartScanner() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()

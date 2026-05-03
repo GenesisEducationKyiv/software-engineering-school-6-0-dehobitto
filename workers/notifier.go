@@ -1,3 +1,4 @@
+// Package workers provides background workers for notifications and scanning.
 package workers
 
 import (
@@ -9,15 +10,18 @@ import (
 	"subber/middleware"
 )
 
+// NotificationJob represents an email notification to be sent.
 type NotificationJob struct {
 	Email   string
 	Message string
 }
 
+// NotifierWorker consumes notification jobs from a channel and sends emails.
 type NotifierWorker struct {
 	cfg *config.Config
 }
 
+// NewNotifierWorker creates a new NotifierWorker with the given config.
 func NewNotifierWorker(cfg *config.Config) *NotifierWorker {
 	return &NotifierWorker{
 		cfg: cfg,
@@ -34,6 +38,7 @@ func (n *NotifierWorker) sendEmail(to, body string) error {
 	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
 }
 
+// Start begins processing notification jobs from the channel.
 func (n *NotifierWorker) Start(jobs <-chan NotificationJob) {
 	log.Println("Notifier worker started")
 

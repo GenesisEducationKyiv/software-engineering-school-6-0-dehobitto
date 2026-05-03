@@ -1,5 +1,6 @@
 package models
 
+// Subscription represents a user's subscription to a GitHub repository's releases.
 type Subscription struct {
 	Email       string `json:"email"`         // Email address
 	Repo        string `json:"repo"`          // GitHub repository in owner/repo format
