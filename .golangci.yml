@@ -45,19 +45,20 @@ linters:
         - (io.ReadCloser).Close
         - (*github.com/gin-gonic/gin.Engine).SetTrustedProxies
 
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - errcheck
+          - dupl
+          - gosec
+      - path: internal/validator/
+        linters:
+          - revive
+        text: "exported:|package-comments:"
+
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
   new: false
-
-rules:
-  - path: _test\.go
-    linters:
-      - gocyclo
-      - errcheck
-      - dupl
-      - gosec
-  - path: internal/validator/
-    linters:
-      - revive
-    text: "exported:|package-comments:"
