@@ -16,7 +16,7 @@
 - **Architecture Summary**: Single monolith application with concurrent 
   background workers implemented as goroutines. No microservices.
 - **System Context Diagram**:
-  [!(images/scd.png)]
+  ![](images/scd.png)
 
 ---
 
