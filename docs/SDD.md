@@ -1,112 +1,168 @@
-# Software Design Document (SDD)
+# Software Design Document — Subber
 
 ## 1. Introduction
-- **Purpose**: The purpose of this document is to define the design of the entire application system.
-- **Scope**: This document covers the REST API design, 
-  authentication via API KEY, background worker architecture, 
-  and the web interface that consumes the API.
+
+**Purpose**: Define the architecture and design of Subber.
+
+**Scope**: REST API, API key authentication, background worker architecture, PostgreSQL storage, Redis caching, and Docker deployment.
+
+**Architecture**: Single monolith with two concurrent background workers. No microservices.
 
 ---
 
 ## 2. System Overview
-- **System Description**: A REST API protected by API KEY authentication, 
-  consumed by a web interface. Handles requests and runs background 
-  tasks via goroutines.
-- **Design Goals**: Scalability, maintainability.
-- **Architecture Summary**: Single monolith application with concurrent 
-  background workers implemented as goroutines. No microservices.
-- **System Context Diagram**:
-  ![](images/scd.png)
+
+![System Context Diagram](images/scd.png)
+
+1. A user submits their email and a GitHub repository via the web form
+2. Subber saves the subscription as unconfirmed and sends a confirmation email
+3. The user clicks the confirmation link — the subscription becomes active
+4. A background scanner periodically polls GitHub for new release tags
+5. When a new tag is detected, every confirmed subscriber of that repository receives an email
 
 ---
 
-## 3. Architectural Design
-- **System Architecture Diagram**:
-  - *Use Mermaid diagram here.*
-- **Component Breakdown**:
-  - - [Component 1]: [Responsibilities, interactions.]
-  - - [Component 2]: [Responsibilities, interactions.]
-- **Technology Stack**: [Languages, frameworks, databases.]
-- **Data Flow and Control Flow**:
-  - *Use Mermaid sequence or flow diagrams here.*
+## 3. Architecture
+
+### Technology Stack:
+
+| Layer | Technology |
+|---|---|
+| Language | Go |
+| HTTP framework | Gin |
+| Database | PostgreSQL |
+| Cache | Redis |
+| Email | SMTP |
+| Containerisation | Docker, Docker Compose |
+
+**Components**:
+
+- **REST API** - handles subscribe, confirm, unsubscribe, and list requests
+- **Scanner Worker** - periodically checks GitHub for new release tags and enqueues notification jobs
+- **Notifier Worker** - consumes jobs from a queue and delivers emails via SMTP
+- **PostgreSQL** - stores all subscription state
+- **Redis** - caches GitHub API responses to reduce external calls
+
+**Data flow**:
+
+1. Subscription flow:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as Web UI
+    participant API as REST API
+    participant GitHub as GitHub API
+    participant DB as PostgreSQL
+    participant Notifier as Notifier Worker
+    participant SMTP as SMTP Server
+
+    User->>UI: fills in email and repo
+    UI->>API: POST /api/subscribe
+    API->>GitHub: does this repo exist?
+    GitHub-->>API: 200 OK
+    API->>DB: save subscription (unconfirmed)
+    API->>Notifier: enqueue confirmation job
+    Notifier->>SMTP: send confirmation email
+    SMTP-->>User: email with confirmation link
+
+    User->>API: GET /api/confirm/:token
+    API->>DB: mark confirmed = true
+    API-->>User: confirmed
+```
+
+2. Release notification flow:
+
+```mermaid
+sequenceDiagram
+    participant Scanner as Scanner Worker
+    participant DB as PostgreSQL
+    participant GitHub as GitHub API
+    participant Notifier as Notifier Worker
+    participant SMTP as SMTP Server
+    participant User
+
+    loop every 30 seconds
+        Scanner->>DB: get all confirmed subscriptions
+        DB-->>Scanner: list of repos + last seen tags
+        Scanner->>GitHub: get latest release tag
+        GitHub-->>Scanner: tag_name
+        alt tag changed
+            Scanner->>DB: update last_seen_tag
+            Scanner->>Notifier: enqueue notification job
+            Notifier->>SMTP: send release email
+            SMTP-->>User: new release notification
+        end
+    end
+```
 
 ---
 
-## 4. Detailed Design
-For each module/component:
+## 4. Non-Functional Properties
 
-### [Component Name]
-- **Responsibilities**: [What does it do?]
-- **Interfaces/APIs**:
-  - Inputs: [Describe input data.]
-  - Outputs: [Describe output data.]
-  - Error Handling: [Describe approach.]
-- **Data Structures**: [Key models/schemas.]
-- **Algorithms/Logic**: [Design patterns or important logic.]
-- **State Management**: [How is state handled?]
+| Property | Value | Rationale |
+|---|---|---|
+| Scan interval | 30 seconds | Balances notification latency against GitHub API rate limits |
+| GitHub API cache TTL | 10 minutes | Reduces repeated calls for repos with no new releases |
+| GitHub HTTP client timeout | 10 seconds | Prevents scanner from stalling on slow API responses |
+| HTTP server read header timeout | 10 seconds | Mitigates Slowloris-style connection exhaustion |
+| Scan cycle timeout | 30 seconds | Bounds the worst-case duration of a single scan pass |
 
 ---
 
-## 5. Database Design
-- **ER Diagram / Schema Diagram**:
-  - *Use Mermaid ER diagram here.*
-- **Tables/Collections**: [Define each with fields and constraints.]
-- **Relationships**: [Describe relationships between entities.]
-- **Migration Strategy**: [If applicable.]
+## 5. Data Model
+
+One table: `subscriptions`
+
+| Field | Purpose |
+|---|---|
+| `email` + `repo` | Composite unique key |
+| `confirmed` | Guards against unverified addresses receiving notifications |
+| `token` | Used in confirmation and unsubscribe links |
+| `last_seen_tag` | Baseline for detecting new releases |
+
+Schema is embedded into the binary and applied on startup.
 
 ---
 
 ## 6. External Interfaces
-- **User Interface**: [Mockups, UX notes.]
-- **External APIs**: [Integrations and dependencies.]
-- **Hardware Interfaces**: [If any.]
-- **Network Protocols/Communication**:
-  - [REST, GraphQL, gRPC, WebSockets, etc.]
+
+**GitHub API** - two call types:
+
+- *Repository existence check* (on subscribe): HEAD request to `/repos/{owner}/{repo}`. 404 → subscription rejected with an error. Other non-200 → propagated as an error to the caller.
+- *Latest release tag* (polled by Scanner): GET `/repos/{owner}/{repo}/releases/latest`. 404 → no release yet, skip silently. 429 → rate limit exceeded, error returned and scan skipped for that repo. Other non-200 → error returned and scan skipped. Successful responses are cached in Redis for 10 minutes to reduce API call volume.
+
+**SMTP** - sends two email types: subscription confirmation and release notification.
+
+**Web Interface** - static form at `/` for submitting email and repository.
 
 ---
 
-## 7. Security Considerations
-- **Authentication**: [Method used.]
-- **Authorization**: [Role/permission models.]
-- **Data Protection**: [Encryption, storage.]
-- **Compliance**: [GDPR, HIPAA, etc.]
-- **Threat Model**:
-  - *Use Mermaid diagram here if helpful.*
+## 7. API
+
+Protected endpoints require `X-API-Key` header.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/subscribe` | ✓ | Subscribe email to a repository |
+| `GET` | `/api/subscriptions/` | ✓ | List confirmed subscriptions for an email |
+| `GET` | `/api/confirm/:token` | — | Confirm a subscription |
+| `GET` | `/api/unsubscribe/:token` | — | Remove a subscription |
+| `GET` | `/metrics` | — | Prometheus metrics |
 
 ---
 
-## 8. Performance and Scalability
-- **Expected Load**: [Requests per second, data volume.]
-- **Caching Strategy**: [Describe caches used.]
-- **Database Optimization**: [Indexes, partitioning.]
-- **Scaling Strategy**: [Vertical/horizontal.]
+## 8. Security
+
+- **Authentication**: API key via `X-API-Key` header on protected routes
+- **Email ownership**: double opt-in - confirmation required before any notifications are sent
+- **Tokens**: single-use UUID per subscription for confirmation and unsubscribe
+- **Credentials**: all secrets injected via environment variables
 
 ---
 
-## 9. Deployment Architecture
-- **Environments**: Only one.
-- **CI/CD Pipeline**: CI: test/build/linter.
-- **Infrastructure Diagram**:
-  - *Use Mermaid diagram here.*
-- **Cloud/Hosting**: localhost
-- **Containerization/Orchestration**: Docker conteinerization.
+## 9. Deployment
 
----
+Three Docker Compose services: `postgres`, `redis`, `subber`. The application waits for both dependencies to be healthy before starting.
 
-## 10. Testing Strategy
-- **Unit Testing**: [Tools, coverage goals.]
-- **Integration Testing**: [Approach and tools.]
-- **End-to-End Testing**: [Scope and tools.]
-- **Quality Metrics**: [Code coverage, linting, etc.]
-
----
-
-## 11. Appendices
-- **Diagrams**: [All referenced diagrams.]
-- **Glossary**: [Terms and definitions.]
-- **Change History**:
-  - [Version, Date, Author, Changes]
-
----
-
-> **Tip**: Use Mermaid diagrams throughout to make architecture, data flow, and interfaces clear and easy to maintain.
+**CI** (GitHub Actions): build, test, and lint run on every push and pull request to `main`.
