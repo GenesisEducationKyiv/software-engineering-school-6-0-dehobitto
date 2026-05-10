@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"subber/internal/config"
+	gh "subber/internal/github"
 	"subber/internal/infra/cache"
 	"subber/internal/infra/database"
 	"subber/internal/routes"
@@ -63,12 +64,14 @@ func run() error {
 		return notifier.Start(groupCtx, jobsChannel)
 	}))
 
-	scanner := workers.NewScannerWorker(repo, cfg, jobsChannel, redisCache)
+	githubClient := gh.NewGitHubClient()
+
+	scanner := workers.NewScannerWorker(repo, cfg, jobsChannel, redisCache, githubClient)
 	group.Go(withRecover(func() error {
 		return scanner.StartScanner(groupCtx)
 	}))
 
-	svc := service.NewSubscriptionService(repo, cfg, jobsChannel, redisCache)
+	svc := service.NewSubscriptionService(repo, cfg, jobsChannel, redisCache, githubClient)
 
 	router := routes.SetupRouter(repo, svc, cfg)
 	srv := &http.Server{

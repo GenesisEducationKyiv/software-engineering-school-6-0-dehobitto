@@ -14,18 +14,20 @@ import (
 )
 
 type ScannerWorker struct {
-	repo  ScanRepository
-	cfg   *config.Config
-	jobs  chan<- NotificationJob
-	cache cache.Cache
+	repo   ScanRepository
+	cfg    *config.Config
+	jobs   chan<- NotificationJob
+	cache  cache.Cache
+	github *github.GitHubClient
 }
 
-func NewScannerWorker(repo ScanRepository, cfg *config.Config, jobs chan<- NotificationJob, cache cache.Cache) *ScannerWorker {
+func NewScannerWorker(repo ScanRepository, cfg *config.Config, jobs chan<- NotificationJob, cache cache.Cache, gh *github.GitHubClient) *ScannerWorker {
 	return &ScannerWorker{
-		repo:  repo,
-		cfg:   cfg,
-		jobs:  jobs,
-		cache: cache,
+		repo:   repo,
+		cfg:    cfg,
+		jobs:   jobs,
+		cache:  cache,
+		github: gh,
 	}
 }
 
@@ -65,7 +67,7 @@ func (w *ScannerWorker) checkForNewReleases(ctx context.Context, repos []models.
 	var updated []models.GitHubRelease
 
 	for _, repo := range repos {
-		newTag, err := github.GetLatestTag(ctx, repo.Repo, w.cfg.GitHubToken, w.cache)
+		newTag, err := w.github.GetLatestTag(ctx, repo.Repo, w.cfg.GitHubToken, w.cache)
 		if err != nil {
 			log.Printf("failed to get tag for %s: %v", repo.Repo, err)
 			continue
