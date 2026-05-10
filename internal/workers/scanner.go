@@ -10,6 +10,7 @@ import (
 	"subber/internal/github"
 	"subber/internal/infra/cache"
 	"subber/internal/infra/database"
+	"subber/internal/metrics"
 	"subber/internal/models"
 )
 
@@ -44,6 +45,7 @@ func (w *ScannerWorker) StartScanner(ctx context.Context) error {
 			if err != nil {
 				log.Printf("Scan failed: %v", err)
 			}
+			metrics.ScanCyclesTotal.Inc()
 		}
 	}
 }
