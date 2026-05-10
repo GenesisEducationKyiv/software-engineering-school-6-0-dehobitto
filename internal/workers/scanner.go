@@ -9,19 +9,18 @@ import (
 	"subber/internal/config"
 	"subber/internal/github"
 	"subber/internal/infra/cache"
-	"subber/internal/infra/database"
 	"subber/internal/metrics"
 	"subber/internal/models"
 )
 
 type ScannerWorker struct {
-	repo  *database.Repository
+	repo  ScanRepository
 	cfg   *config.Config
 	jobs  chan<- NotificationJob
 	cache cache.Cache
 }
 
-func NewScannerWorker(repo *database.Repository, cfg *config.Config, jobs chan<- NotificationJob, cache cache.Cache) *ScannerWorker {
+func NewScannerWorker(repo ScanRepository, cfg *config.Config, jobs chan<- NotificationJob, cache cache.Cache) *ScannerWorker {
 	return &ScannerWorker{
 		repo:  repo,
 		cfg:   cfg,
