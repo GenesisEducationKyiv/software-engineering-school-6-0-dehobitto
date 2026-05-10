@@ -80,7 +80,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 func (s *SubscriptionService) validateRepoOnGitHub(ctx context.Context, repo string) error {
 	resp, err := s.github.CheckIfRepoExists(ctx, repo, s.cfg.GitHubToken)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrGitHubUnavailable, err)
+		return fmt.Errorf("%w: %w", ErrGitHubUnavailable, err)
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
