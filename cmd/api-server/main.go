@@ -18,6 +18,7 @@ import (
 	"subber/internal/infra/cache"
 	"subber/internal/infra/database"
 	"subber/internal/routes"
+	"subber/internal/service"
 	"subber/internal/workers"
 )
 
@@ -60,7 +61,9 @@ func run() error {
 		return scanner.StartScanner(ctx)
 	}))
 
-	router := routes.SetupRouter(repo, cfg, jobsChannel, redisCache)
+	svc := service.NewSubscriptionService(repo, cfg, jobsChannel, redisCache)
+
+	router := routes.SetupRouter(repo, svc, cfg)
 	srv := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
 		Handler:           router,
@@ -95,4 +98,7 @@ func withRecover(fn func() error) func() error {
 		}()
 		return fn()
 	}
+}
+
+func initialize() {
 }

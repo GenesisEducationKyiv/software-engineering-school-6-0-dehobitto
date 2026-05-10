@@ -7,13 +7,12 @@ import (
 
 	"subber/internal/config"
 	"subber/internal/handlers"
-	"subber/internal/infra/cache"
 	"subber/internal/infra/database"
 	"subber/internal/middleware"
-	"subber/internal/workers"
+	"subber/internal/service"
 )
 
-func SetupRouter(repo *database.Repository, cfg *config.Config, jobs chan<- workers.NotificationJob, rc *cache.RedisCache) *gin.Engine {
+func SetupRouter(repo *database.Repository, svc *service.SubscriptionService, cfg *config.Config) *gin.Engine {
 	r := gin.Default()
 	r.SetTrustedProxies(nil) //nolint:gosec // nil input cannot produce a parse error
 
@@ -26,7 +25,7 @@ func SetupRouter(repo *database.Repository, cfg *config.Config, jobs chan<- work
 		c.File("./static/index.html")
 	})
 
-	h := handlers.NewHandler(repo, cfg, jobs, rc)
+	h := handlers.NewHandler(repo, svc)
 
 	api := r.Group("/api")
 	{
