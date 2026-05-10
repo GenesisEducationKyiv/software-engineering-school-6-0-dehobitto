@@ -99,6 +99,3 @@ func withRecover(fn func() error) func() error {
 		return fn()
 	}
 }
-
-func initialize() {
-}
