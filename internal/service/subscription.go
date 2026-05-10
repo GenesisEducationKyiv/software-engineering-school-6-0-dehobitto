@@ -25,18 +25,20 @@ var (
 )
 
 type SubscriptionService struct {
-	repo  SubscriptionRepository
-	cfg   *config.Config
-	jobs  chan<- workers.NotificationJob
-	cache cache.Cache
+	repo   SubscriptionRepository
+	cfg    *config.Config
+	jobs   chan<- workers.NotificationJob
+	cache  cache.Cache
+	github *github.GitHubClient
 }
 
-func NewSubscriptionService(repo SubscriptionRepository, cfg *config.Config, jobs chan<- workers.NotificationJob, cache cache.Cache) *SubscriptionService {
+func NewSubscriptionService(repo SubscriptionRepository, cfg *config.Config, jobs chan<- workers.NotificationJob, cache cache.Cache, gh *github.GitHubClient) *SubscriptionService {
 	return &SubscriptionService{
-		repo:  repo,
-		cfg:   cfg,
-		jobs:  jobs,
-		cache: cache,
+		repo:   repo,
+		cfg:    cfg,
+		jobs:   jobs,
+		cache:  cache,
+		github: gh,
 	}
 }
 
@@ -54,7 +56,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 		return err
 	}
 
-	tag, err := github.GetLatestTag(ctx, repo, s.cfg.GitHubToken, s.cache)
+	tag, err := s.github.GetLatestTag(ctx, repo, s.cfg.GitHubToken, s.cache)
 	if err != nil {
 		log.Printf("Warning: could not fetch initial tag for %s: %v", repo, err)
 	}
@@ -76,7 +78,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 }
 
 func (s *SubscriptionService) validateRepoOnGitHub(ctx context.Context, repo string) error {
-	resp, err := github.CheckIfRepoExists(ctx, repo, s.cfg.GitHubToken)
+	resp, err := s.github.CheckIfRepoExists(ctx, repo, s.cfg.GitHubToken)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrGitHubUnavailable, err)
 	}
