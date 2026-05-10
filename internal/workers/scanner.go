@@ -10,7 +10,7 @@ import (
 	"subber/internal/github"
 	"subber/internal/infra/cache"
 	"subber/internal/infra/database"
-	"subber/internal/middleware"
+	"subber/internal/metrics"
 	"subber/internal/models"
 )
 
@@ -42,10 +42,10 @@ func (w *ScannerWorker) StartScanner(ctx context.Context) error {
 			scanCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			err := w.scan(scanCtx)
 			cancel()
-			middleware.ScanCyclesTotal.Inc()
 			if err != nil {
 				log.Printf("Scan failed: %v", err)
 			}
+			metrics.ScanCyclesTotal.Inc()
 		}
 	}
 }

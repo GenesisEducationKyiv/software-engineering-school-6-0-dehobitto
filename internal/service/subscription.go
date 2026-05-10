@@ -81,7 +81,11 @@ func (s *SubscriptionService) validateRepoOnGitHub(ctx context.Context, repo str
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrGitHubUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("failed to close github response body: %v", err)
+		}
+	}()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
