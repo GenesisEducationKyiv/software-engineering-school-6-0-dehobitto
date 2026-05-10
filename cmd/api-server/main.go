@@ -57,7 +57,8 @@ func run() error {
 
 	group, groupCtx := errgroup.WithContext(ctx)
 
-	notifier := workers.NewNotifierWorker(cfg)
+	smtpSender := workers.NewSMTPSender(cfg)
+	notifier := workers.NewNotifierWorker(smtpSender)
 	group.Go(withRecover(func() error {
 		return notifier.Start(groupCtx, jobsChannel)
 	}))
