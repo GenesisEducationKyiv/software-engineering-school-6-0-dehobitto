@@ -17,15 +17,15 @@ type ScannerWorker struct {
 	repo  *database.Repository
 	cfg   *config.Config
 	jobs  chan<- NotificationJob
-	cache *cache.RedisCache
+	cache cache.Cache
 }
 
-func NewScannerWorker(repo *database.Repository, cfg *config.Config, jobs chan<- NotificationJob, rc *cache.RedisCache) *ScannerWorker {
+func NewScannerWorker(repo *database.Repository, cfg *config.Config, jobs chan<- NotificationJob, cache cache.Cache) *ScannerWorker {
 	return &ScannerWorker{
 		repo:  repo,
 		cfg:   cfg,
 		jobs:  jobs,
-		cache: rc,
+		cache: cache,
 	}
 }
 

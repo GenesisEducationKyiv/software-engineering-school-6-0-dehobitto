@@ -21,11 +21,11 @@ func setGitHubAPIBase(base string) {
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func GetLatestTag(ctx context.Context, repo, token string, rc *cache.RedisCache) (string, error) {
+func GetLatestTag(ctx context.Context, repo, token string, cache cache.Cache) (string, error) {
 	cacheKey := "github:latest_tag:" + repo
 
-	if rc != nil {
-		cached, err := rc.Get(ctx, cacheKey)
+	if cache != nil {
+		cached, err := cache.Get(ctx, cacheKey)
 		if err == nil && cached != "" {
 			return cached, nil
 		}
@@ -67,8 +67,8 @@ func GetLatestTag(ctx context.Context, repo, token string, rc *cache.RedisCache)
 		return "", err
 	}
 
-	if rc != nil && release.LastSeenTag != "" {
-		if err := rc.Set(ctx, cacheKey, release.LastSeenTag, 10*time.Minute); err != nil {
+	if cache != nil && release.LastSeenTag != "" {
+		if err := cache.Set(ctx, cacheKey, release.LastSeenTag, 10*time.Minute); err != nil {
 			log.Printf("failed to cache tag for %s: %v", cacheKey, err)
 		}
 	}
