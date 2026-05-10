@@ -7,7 +7,7 @@ import (
 	"net/smtp"
 
 	"subber/internal/config"
-	"subber/internal/middleware"
+	"subber/internal/metrics"
 )
 
 type NotificationJob struct {
@@ -46,11 +46,11 @@ func (n *NotifierWorker) Start(ctx context.Context, jobs <-chan NotificationJob)
 			}
 			if err := n.sendEmail(job.Email, job.Message); err != nil {
 				log.Printf("Failed to send email to %s: %v", job.Email, err)
-				middleware.EmailsFailedTotal.Inc()
+				metrics.EmailsFailedTotal.Inc()
 				continue
 			}
 			log.Printf("Email sent to %s", job.Email)
-			middleware.EmailsSentTotal.Inc()
+			metrics.EmailsSentTotal.Inc()
 		}
 	}
 }

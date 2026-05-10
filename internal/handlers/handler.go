@@ -1,24 +1,18 @@
 package handlers
 
 import (
-	"subber/internal/config"
-	"subber/internal/infra/cache"
 	"subber/internal/infra/database"
-	"subber/internal/workers"
+	"subber/internal/service"
 )
 
 type Handler struct {
-	repo  *database.Repository
-	cfg   *config.Config
-	jobs  chan<- workers.NotificationJob
-	cache *cache.RedisCache
+	repo *database.Repository
+	svc  *service.SubscriptionService
 }
 
-func NewHandler(repo *database.Repository, cfg *config.Config, jobs chan<- workers.NotificationJob, rc *cache.RedisCache) *Handler {
+func NewHandler(repo *database.Repository, svc *service.SubscriptionService) *Handler {
 	return &Handler{
-		repo:  repo,
-		cfg:   cfg,
-		jobs:  jobs,
-		cache: rc,
+		repo: repo,
+		svc:  svc,
 	}
 }

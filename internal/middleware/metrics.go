@@ -26,27 +26,6 @@ var (
 		},
 		[]string{"method", "path"},
 	)
-
-	EmailsSentTotal = promauto.NewCounter(
-		prometheus.CounterOpts{
-			Name: "emails_sent_total",
-			Help: "Total number of emails sent",
-		},
-	)
-
-	EmailsFailedTotal = promauto.NewCounter(
-		prometheus.CounterOpts{
-			Name: "emails_failed_total",
-			Help: "Total number of failed email sends",
-		},
-	)
-
-	ScanCyclesTotal = promauto.NewCounter(
-		prometheus.CounterOpts{
-			Name: "scan_cycles_total",
-			Help: "Total number of scan cycles completed",
-		},
-	)
 )
 
 func PrometheusMiddleware() gin.HandlerFunc {

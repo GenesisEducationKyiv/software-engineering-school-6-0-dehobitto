@@ -1,102 +1,45 @@
 package handlers
 
 import (
-	"fmt"
-	"log"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 
-	"subber/internal/github"
 	"subber/internal/models"
+	"subber/internal/service"
 	"subber/internal/validators"
-	"subber/internal/workers"
 )
 
 func (h *Handler) Subscribe(c *gin.Context) {
-	var newOwnerRepo models.Subscription
+	var input models.Subscription
 
-	if err := c.ShouldBindJSON(&newOwnerRepo); err != nil {
+	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
 
-	if !validators.IsValidRepo(newOwnerRepo.Repo) {
+	if !validators.IsValidRepo(input.Repo) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid repository format"})
 		return
 	}
 
-	exists, err := h.repo.SubscriptionExists(c.Request.Context(), newOwnerRepo.Email, newOwnerRepo.Repo)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error during check"})
+	err := h.svc.Subscribe(c.Request.Context(), input.Email, input.Repo)
+	if err == nil {
+		c.JSON(http.StatusOK, gin.H{"success": "Subscription successful. Confirmation email sent."})
 		return
 	}
 
-	if exists {
+	switch {
+	case errors.Is(err, service.ErrAlreadySubscribed):
 		c.JSON(http.StatusConflict, gin.H{"error": "Email already subscribed to this repository"})
-		return
-	}
-
-	resp, err := github.CheckIfRepoExists(c.Request.Context(), newOwnerRepo.Repo, h.cfg.GitHubToken)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reach GitHub API"})
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusTooManyRequests {
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "GitHub API rate limit exceeded. Try again later."})
-		return
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
+	case errors.Is(err, service.ErrRepoNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "Repository not found on GitHub"})
-		return
-	}
-
-	if resp.StatusCode != http.StatusOK {
+	case errors.Is(err, service.ErrGitHubRateLimit):
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "GitHub API rate limit exceeded. Try again later."})
+	case errors.Is(err, service.ErrGitHubUnavailable):
 		c.JSON(http.StatusBadGateway, gin.H{"error": "External API error"})
-		return
-	}
-
-	tag, err := github.GetLatestTag(c.Request.Context(), newOwnerRepo.Repo, h.cfg.GitHubToken, h.cache)
-	if err != nil {
-		log.Printf("Warning: Could not fetch initial tag for %s: %v", newOwnerRepo.Repo, err)
-	}
-
-	newOwnerRepo.LastSeenTag = tag
-	newOwnerRepo.Token = uuid.New().String()
-	newOwnerRepo.Confirmed = false
-
-	err = h.repo.SaveSubscription(c.Request.Context(), newOwnerRepo)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database saving failed"})
-		return
-	}
-
-	h.sendConfirmation(newOwnerRepo.Email, newOwnerRepo.Token)
-
-	c.JSON(http.StatusOK, gin.H{"success": "Subscription successful. Confirmation email sent."})
-}
-
-func (h *Handler) sendConfirmation(email, token string) {
-	confirmURL := fmt.Sprintf("%s/api/confirm/%s", h.cfg.BaseURL, token)
-
-	message := fmt.Sprintf(
-		"Welcome! Please confirm your subscription to GitHub repository updates by clicking here: %s",
-		confirmURL,
-	)
-
-	job := workers.NotificationJob{
-		Email:   email,
-		Message: message,
-	}
-
-	select {
-	case h.jobs <- job:
-		log.Printf("Confirmation job queued for: %s", email)
 	default:
-		log.Printf("Critical: Notification channel is full. Dropping confirmation for: %s", email)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 	}
 }
