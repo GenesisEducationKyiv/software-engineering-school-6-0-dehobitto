@@ -13,7 +13,6 @@ import (
 	"subber/internal/config"
 	"subber/internal/github"
 	"subber/internal/infra/cache"
-	"subber/internal/infra/database"
 	"subber/internal/models"
 	"subber/internal/workers"
 )
@@ -26,13 +25,13 @@ var (
 )
 
 type SubscriptionService struct {
-	repo  *database.Repository
+	repo  SubscriptionRepository
 	cfg   *config.Config
 	jobs  chan<- workers.NotificationJob
 	cache cache.Cache
 }
 
-func NewSubscriptionService(repo *database.Repository, cfg *config.Config, jobs chan<- workers.NotificationJob, cache cache.Cache) *SubscriptionService {
+func NewSubscriptionService(repo SubscriptionRepository, cfg *config.Config, jobs chan<- workers.NotificationJob, cache cache.Cache) *SubscriptionService {
 	return &SubscriptionService{
 		repo:  repo,
 		cfg:   cfg,
