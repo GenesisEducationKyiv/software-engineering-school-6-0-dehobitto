@@ -1,0 +1,56 @@
+version: "2"
+
+run:
+  timeout: 5m
+  concurrency: 4
+
+formatters:
+  enable:
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [subber]
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+
+    - bodyclose
+    - sqlclosecheck
+
+    - errorlint
+    - gosec
+
+    - gocyclo
+    - gocritic
+    - whitespace
+
+  settings:
+    gocyclo:
+      min-complexity: 15
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+    errcheck:
+      exclude-functions:
+        - (io.ReadCloser).Close
+        - (*github.com/gin-gonic/gin.Engine).SetTrustedProxies
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - errcheck
+          - dupl
+          - gosec
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
