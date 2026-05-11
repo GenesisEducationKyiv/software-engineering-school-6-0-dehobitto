@@ -36,7 +36,7 @@ func LoadConfig() *Config {
 		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
 		RedisAddr:    getEnv("REDIS_ADDR", "redis:6379"),
 		APIKey:       getEnv("API_KEY", ""),
-		BaseURL:      getEnv("BASE_URL", "http://localhost:8080"),
+		BaseURL:      getEnv("BASE_URL", ""),
 	}
 }
 

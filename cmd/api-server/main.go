@@ -29,6 +29,10 @@ func main() {
 func run() error {
 	cfg := config.LoadConfig()
 
+	if cfg.BaseURL == "" {
+		return fmt.Errorf("BASE_URL environment variable is required")
+	}
+
 	connectionPool, err := database.Connect(cfg)
 	if err != nil {
 		return fmt.Errorf("connection to database failed: %w", err)
