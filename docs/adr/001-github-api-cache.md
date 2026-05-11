@@ -22,13 +22,12 @@
 
 The decisive factor is restart behavior - an in-memory cache is lost on every process restart, causing a burst of GitHub API calls proportional to the number of subscriptions. Redis TTL support also eliminates the need for a custom eviction loop.
 
+## Implementation Details
 
-- Key: `github:latest_tag:{owner/repo}`
-- Value: latest release tag string (e.g. `v1.2.3`)
-- TTL: 10 minutes
-- Pattern: cache-aside - check cache before every GitHub call, write on
-  cache miss. If Redis is unavailable, the call falls through to GitHub
-  silently with no error returned to the user.
+* **Key:** `github:latest_tag:{owner/repo}`
+* **Value:** latest release tag string (e.g. `v1.2.3`)
+* **TTL:** 10 minutes
+* **Pattern:** cache-aside - check cache before every GitHub call, write on cache miss. If Redis is unavailable, the call falls through to GitHub silently with no error returned to the user.
 
 ## Consequences
 ### Positives:
