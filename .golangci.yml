@@ -2,15 +2,12 @@ version: "2"
 
 run:
   timeout: 5m
-  tests: false
   concurrency: 4
 
 formatters:
   enable:
     - goimports
   settings:
-    gofumpt:
-      extra-rules: true
     goimports:
       local-prefixes: [subber]
 

@@ -2,9 +2,10 @@ package github
 
 import (
 	"context"
+	"testing"
+
 	"net/http"
 	"net/http/httptest"
-	"testing"
 )
 
 func TestGetLatestTag_Success(t *testing.T) {
@@ -23,7 +24,7 @@ func TestGetLatestTag_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	
+
 	if tag != "v1.2.3" {
 		t.Errorf("expected v1.2.3, got %s", tag)
 	}
