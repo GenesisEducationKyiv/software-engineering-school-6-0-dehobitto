@@ -1,4 +1,3 @@
-// Package cache provides a Redis-based caching layer for the application.
 package cache
 
 import (

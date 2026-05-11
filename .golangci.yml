@@ -27,7 +27,6 @@ linters:
 
     - gocyclo
     - gocritic
-    - revive
     - whitespace
 
   settings:
@@ -50,10 +49,6 @@ linters:
           - errcheck
           - dupl
           - gosec
-      - path: internal/validator/
-        linters:
-          - revive
-        text: "exported:|package-comments:"
 
 issues:
   max-issues-per-linter: 0

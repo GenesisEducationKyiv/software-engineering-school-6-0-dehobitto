@@ -1,4 +1,3 @@
-// Package main is the entry point
 package main
 
 import (

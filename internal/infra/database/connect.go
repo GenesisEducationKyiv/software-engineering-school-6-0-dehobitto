@@ -1,4 +1,3 @@
-// Package database provides PostgreSQL connection management and data access.
 package database
 
 import (
