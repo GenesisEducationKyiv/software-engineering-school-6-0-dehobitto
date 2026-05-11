@@ -156,7 +156,7 @@ Protected endpoints require `X-API-Key` header.
 
 - **Authentication**: API key via `X-API-Key` header on protected routes
 - **Email ownership**: double opt-in - confirmation required before any notifications are sent
-- **Tokens**: single-use UUID per subscription for confirmation and unsubscribe
+- **Tokens**: one UUID per subscription for confirmation and unsubscribe
 - **Credentials**: all secrets injected via environment variables
 
 ---
