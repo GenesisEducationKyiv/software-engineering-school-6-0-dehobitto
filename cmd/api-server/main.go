@@ -40,7 +40,10 @@ func run() error {
 	}
 
 	repo := database.NewRepository(connectionPool)
-	redisCache := cache.NewRedisCache(cfg.RedisAddr)
+	redisCache, err := cache.NewRedisCache(context.Background(), cfg.RedisAddr)
+	if err != nil {
+		return fmt.Errorf("connection to redis failed: %w", err)
+	}
 
 	jobsChannel := make(chan workers.NotificationJob, 100)
 
