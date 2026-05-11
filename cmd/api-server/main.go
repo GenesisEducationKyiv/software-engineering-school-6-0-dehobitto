@@ -54,16 +54,16 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	group, ctx := errgroup.WithContext(ctx)
+	group, groupCtx := errgroup.WithContext(ctx)
 
 	notifier := workers.NewNotifierWorker(cfg)
 	group.Go(withRecover(func() error {
-		return notifier.Start(ctx, jobsChannel)
+		return notifier.Start(groupCtx, jobsChannel)
 	}))
 
 	scanner := workers.NewScannerWorker(repo, cfg, jobsChannel, redisCache)
 	group.Go(withRecover(func() error {
-		return scanner.StartScanner(ctx)
+		return scanner.StartScanner(groupCtx)
 	}))
 
 	router := routes.SetupRouter(repo, cfg, jobsChannel, redisCache)
@@ -82,11 +82,23 @@ func run() error {
 	})
 
 	group.Go(func() error {
-		<-ctx.Done()
+		<-groupCtx.Done()
+
+		log.Println("Shutting down HTTP server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return srv.Shutdown(shutdownCtx)
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("HTTP server shutdown error: %v", err)
+		}
+
+		log.Println("Closing jobs channel...")
+		close(jobsChannel)
+
+		return nil
 	})
+
+	log.Printf("Server started on :%s", cfg.ServerPort)
 
 	return group.Wait()
 }
