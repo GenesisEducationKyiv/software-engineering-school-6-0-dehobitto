@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"subber/infra/cache"
-	"subber/models"
+	"subber/internal/infra/cache"
+	"subber/internal/models"
 )
 
 var GitHubAPIBase = "https://api.github.com"
