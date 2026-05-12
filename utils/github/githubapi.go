@@ -65,7 +65,7 @@ func GetLatestTag(ctx context.Context, repo string, token string, rc *cache.Redi
 	}
 
 	if rc != nil && release.LastSeenTag != "" {
-		_ = rc.Set(ctx, cacheKey, release.LastSeenTag, 10*time.Minute)
+		_ = rc.Set(ctx, cacheKey, release.LastSeenTag, 45*time.Second)
 	}
 
 	return release.LastSeenTag, nil

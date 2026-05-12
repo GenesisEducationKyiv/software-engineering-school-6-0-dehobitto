@@ -12,7 +12,7 @@
 
 ## 2. System Overview
 
-![System Context Diagram](images/scd.png)
+![System Context Diagram](images/sdd-Context.drawio.png)
 
 1. A user submits their email and a GitHub repository via the web form
 2. Subber saves the subscription as unconfirmed and sends a confirmation email
@@ -35,13 +35,21 @@
 | Email | SMTP |
 | Containerisation | Docker, Docker Compose |
 
-**Components**:
+### System Containers
+![Container Diagram](images/sdd-Container.drawio.png)
 
-- **REST API** - handles subscribe, confirm, unsubscribe, and list requests
-- **Scanner Worker** - periodically checks GitHub for new release tags and enqueues notification jobs
-- **Notifier Worker** - consumes jobs from a queue and delivers emails via SMTP
+**Components**:
+- **Subber App (Go)** - handles API requests, polling, and email delivery
 - **PostgreSQL** - stores all subscription state
 - **Redis** - caches GitHub API responses to reduce external calls
+
+### Backend Components
+![Component Diagram](images/sdd-Component.drawio.png)
+
+Internally, the Go monolith is divided into:
+- **Subscribe API** - handles HTTP requests and DB writes
+- **Scanner Worker** - periodically checks GitHub for new release tags
+- **Notifier Worker** - consumes jobs from an internal channel and delivers emails via SMTP
 
 **Data flow**:
 
@@ -100,26 +108,39 @@ sequenceDiagram
 
 ## 4. Non-Functional Properties
 
-| Property | Value | Rationale |
-|---|---|---|
+| Property | Value      | Rationale |
+|---|------------|---|
 | Scan interval | 30 seconds | Balances notification latency against GitHub API rate limits |
-| GitHub API cache TTL | 10 minutes | Reduces repeated calls for repos with no new releases |
+| GitHub API cache TTL | 45 seconds | Reduces repeated calls for repos with no new releases |
 | GitHub HTTP client timeout | 10 seconds | Prevents scanner from stalling on slow API responses |
 | HTTP server read header timeout | 10 seconds | Mitigates Slowloris-style connection exhaustion |
-| Scan cycle timeout | 30 seconds | Bounds the worst-case duration of a single scan pass |
+| Scan cycle timeout | 20 seconds | Bounds the worst-case duration of a single scan pass |
 
 ---
 
 ## 5. Data Model
+**Relations**: Single denormalized table. No separate `users` or `repositories` tables to eliminate `JOIN` overhead.
 
-One table: `subscriptions`
+**Table**: `subscriptions`
 
-| Field | Purpose |
-|---|---|
-| `email` + `repo` | Composite unique key |
-| `confirmed` | Guards against unverified addresses receiving notifications |
-| `token` | Used in confirmation and unsubscribe links |
-| `last_seen_tag` | Baseline for detecting new releases |
+| Field | Type | Purpose |
+|---|---|---|
+| `email` | String | Subscriber's email address (part of PK) |
+| `repo` | String | Target repository, e.g., `owner/repo` (part of PK) |
+| `confirmed` | Boolean | Guards against unverified addresses receiving notifications |
+| `token` | UUID | Used in confirmation and unsubscribe links |
+| `last_seen_tag` | String | Baseline for detecting new releases |
+
+**Search Patterns**:
+- **User view**: Fetch all subscriptions for a specific `email`.
+- **Auth**: Look up a single record by `token` (confirm/unsubscribe).
+- **Scanner target list**: Fetch distinct `repo`s where `confirmed = true`.
+- **Notifier dispatch**: Fetch all `email`s for a specific `repo` where `confirmed = true`.
+
+**Index Strategy**:
+- **Composite Primary Key** (`email`, `repo`): Prevents duplicates and implicitly indexes `email` for the user view.
+- **Unique Index** (`token`): Ensures fast O(1) lookups for confirmation links.
+- **Partial Index** (`repo`) `WHERE confirmed = true`: Keeps index size minimal while highly optimizing Scanner and Notifier worker queries.
 
 Schema is embedded into the binary and applied on startup.
 
