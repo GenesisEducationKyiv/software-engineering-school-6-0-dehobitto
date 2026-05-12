@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -20,7 +19,7 @@ func setGitHubAPIBase(base string) {
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func GetLatestTag(ctx context.Context, repo, token string, rc *cache.RedisCache) (string, error) {
+func GetLatestTag(ctx context.Context, repo string, token string, rc *cache.RedisCache) (string, error) {
 	cacheKey := "github:latest_tag:" + repo
 
 	if rc != nil {
@@ -36,7 +35,6 @@ func GetLatestTag(ctx context.Context, repo, token string, rc *cache.RedisCache)
 	if err != nil {
 		return "", err
 	}
-
 	req.Header.Set("User-Agent", "Go-Subber-App")
 
 	if token != "" {
@@ -47,7 +45,7 @@ func GetLatestTag(ctx context.Context, repo, token string, rc *cache.RedisCache)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return "", nil
@@ -67,15 +65,13 @@ func GetLatestTag(ctx context.Context, repo, token string, rc *cache.RedisCache)
 	}
 
 	if rc != nil && release.LastSeenTag != "" {
-		if err := rc.Set(ctx, cacheKey, release.LastSeenTag, 10*time.Minute); err != nil {
-			log.Printf("failed to cache tag for %s: %v", cacheKey, err)
-		}
+		_ = rc.Set(ctx, cacheKey, release.LastSeenTag, 45*time.Second)
 	}
 
 	return release.LastSeenTag, nil
 }
 
-func CheckIfRepoExists(ctx context.Context, repo, token string) (*http.Response, error) {
+func CheckIfRepoExists(ctx context.Context, repo string, token string) (*http.Response, error) {
 	link := fmt.Sprintf("%s/repos/%s", GitHubAPIBase, repo)
 
 	req, err := http.NewRequestWithContext(ctx, "HEAD", link, nil)
