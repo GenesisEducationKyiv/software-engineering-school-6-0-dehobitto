@@ -187,3 +187,48 @@ Protected endpoints require `X-API-Key` header.
 Three Docker Compose services: `postgres`, `redis`, `subber`. The application waits for both dependencies to be healthy before starting.
 
 **CI** (GitHub Actions): build, test, and lint run on every push and pull request to `main`.
+
+## 10. Failure Modes
+
+This section describes the system's behaviour when individual components fail.
+
+### 10.1 GitHub API Unavailable / Errors
+
+| Scenario | System Behaviour | User Impact |
+|---|---|---|
+| API unreachable (network error / timeout) | `subscribe`: returns **500** "Failed to reach GitHub API". Scanner: logs the error and skips the repo, continues to next. | Subscription rejected; release detection delayed until next successful scan cycle. |
+| 404 Not Found | `subscribe`: returns **404** "Repository not found on GitHub". Scanner: treats it as "no release yet" and skips silently. | Subscription rejected for non-existent repos; no false notifications. |
+| 429 Rate Limit | `subscribe`: returns **429** "GitHub API rate limit exceeded. Try again later." Scanner: logs error, skips the repo. | User must retry later; cached responses (10 min TTL) reduce the likelihood of hitting limits during scans. |
+| Non-200 response (5xx, etc.) | `subscribe`: returns **502** "External API error". Scanner: logs "failed to get tag", skips the repo. | Subscription blocked; release scan delayed for affected repo. |
+
+### 10.2 SMTP / Email Delivery Failure
+
+| Scenario | System Behaviour | User Impact |
+|---|---|---|
+| SMTP server unreachable | Notifier worker logs "Failed to send email", increments `emails_failed_total` Prometheus counter, drops the message, and continues to the next job. | **Confirmation email is lost** — the user never receives it and the subscription stays unconfirmed. Release notification emails are also lost. No automatic retry. |
+| Authentication failure | Same as above — `smtp.SendMail` returns an error. | Identical: email silently dropped. |
+| Notification channel full (100-job buffer exhausted) | `sendConfirmation` hits the `default` branch of the `select`, logs a **critical** warning, and drops the job. The HTTP response still returns **200 OK** to the user. | User sees "Subscription successful. Confirmation email sent." but the email is never queued. **False positive response.** |
+
+### 10.3 PostgreSQL Unavailable
+
+| Scenario | System Behaviour | User Impact |
+|---|---|---|
+| DB down at startup | `database.Connect` or `database.Migrate` fails → `log.Fatal`, application exits immediately. | Service does not start; Docker Compose will show the container as unhealthy/exited. |
+| DB down at runtime (API) | Handlers return **500** "Database error during check" or "Database saving failed". | All subscription/confirm/unsubscribe requests fail with a server error. |
+| DB down at runtime (Scanner) | `scan()` returns "query unique repos failed", logged. Scanner sleeps until the next tick (30 s) and retries. | Release detection paused until DB recovers. No data loss — tags are re-checked on recovery. |
+| DB write failure on tag update | Scanner logs "failed to update tag in db", skips to next repo. Tag **is not** persisted → will be re-detected on the next successful cycle (possible duplicate notifications). | Some subscribers may receive the same release notification twice. |
+
+### 10.4 Redis Unavailable
+
+| Scenario | System Behaviour | User Impact |
+|---|---|---|
+| Redis down at startup | `NewRedisCache` creates the client lazily (no connection check at construction); application starts normally. | No immediate impact. |
+| Redis down at runtime | `rc.Get` fails → cache miss, request falls through to GitHub API. `rc.Set` failure is silently ignored (`_ = rc.Set(...)`). | Higher GitHub API call volume; possible rate-limit errors under heavy load. No data loss. |
+
+### 10.5 Scan Cycle Failure
+
+| Scenario | System Behaviour | User Impact |
+|---|---|---|
+| Single repo fails | Error logged, `continue` to next repo. Remaining repos are still scanned. | Only the failing repo misses its check; retried on the next cycle. |
+| Entire scan exceeds 30 s timeout | Context cancelled; `scan()` returns early with a context error. | All repos miss that cycle. Retried automatically on the next tick. |
+| All repos fail | Each failure is logged individually; function returns `nil` (errors are per-repo). | No notifications sent; full retry on the next cycle. |
