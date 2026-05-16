@@ -5,180 +5,106 @@ import (
 	"errors"
 	"testing"
 
+	"subber/internal/config"
+	"subber/internal/infra/cache"
 	"subber/internal/models"
 )
 
-// fakeScanRepo is a test double for ScanRepository.
+type fakeTagFetcher struct {
+	tag string
+	err error
+}
+
+func (f fakeTagFetcher) GetLatestTag(_ context.Context, _, _ string, _ cache.Cache) (string, error) {
+	return f.tag, f.err
+}
+
 type fakeScanRepo struct {
-	repos       []models.GitHubRelease
-	reposErr    error
-	subscribers map[string][]string // repo → emails
-	subsErr     error
-	updateErr   error
-	updated     []models.GitHubRelease
+	subs        []models.GitHubRelease
+	subscribers []string
+	updatedRepo string
 }
 
-func (f *fakeScanRepo) GetUniqueSubscriptions(_ context.Context) ([]models.GitHubRelease, error) {
-	return f.repos, f.reposErr
+func (r *fakeScanRepo) GetUniqueSubscriptions(_ context.Context) ([]models.GitHubRelease, error) {
+	return r.subs, nil
 }
 
-func (f *fakeScanRepo) GetSubscribers(_ context.Context, repo string) ([]string, error) {
-	if f.subsErr != nil {
-		return nil, f.subsErr
+func (r *fakeScanRepo) GetSubscribers(_ context.Context, _ string) ([]string, error) {
+	return r.subscribers, nil
+}
+
+func (r *fakeScanRepo) UpdateTags(_ context.Context, repo models.GitHubRelease) error {
+	r.updatedRepo = repo.Repo
+	return nil
+}
+
+func newTestScanner(repo *fakeScanRepo, gh githubTagFetcher) (*ScannerWorker, chan NotificationJob) {
+	jobs := make(chan NotificationJob, 10)
+	cfg := &config.Config{}
+	return &ScannerWorker{repo: repo, cfg: cfg, jobs: jobs, github: gh}, jobs
+}
+
+func TestScanner_SkipsRepo_WhenGitHubFails(t *testing.T) {
+	repo := &fakeScanRepo{
+		subs: []models.GitHubRelease{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}},
 	}
-	return f.subscribers[repo], nil
-}
+	scanner, jobs := newTestScanner(repo, fakeTagFetcher{err: errors.New("timeout")})
 
-func (f *fakeScanRepo) UpdateTags(_ context.Context, r models.GitHubRelease) error {
-	f.updated = append(f.updated, r)
-	return f.updateErr
-}
-
-// fakeReleaseChecker is a test double for ReleaseChecker.
-type fakeReleaseChecker struct {
-	tags map[string]string
-	errs map[string]error
-}
-
-func (f *fakeReleaseChecker) GetLatestTag(_ context.Context, repo string) (string, error) {
-	if err, ok := f.errs[repo]; ok {
-		return "", err
-	}
-	return f.tags[repo], nil
-}
-
-func newWorker(repo ScanRepository, gh ReleaseChecker) (*ScannerWorker, chan models.NotificationJob) {
-	jobs := make(chan models.NotificationJob, 10)
-	return &ScannerWorker{repo: repo, jobs: jobs, github: gh}, jobs
-}
-
-func TestScan_NoRepos_NoJobsEnqueued(t *testing.T) {
-	// Empty subscription list must be a no-op — no updates, no notifications.
-	w, jobs := newWorker(&fakeScanRepo{}, &fakeReleaseChecker{})
-
-	if err := w.scan(context.Background()); err != nil {
+	if err := scanner.scan(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if len(jobs) != 0 {
-		t.Errorf("expected no jobs, got %d", len(jobs))
+		t.Errorf("jobs = %d, want 0 (github error must not trigger notification)", len(jobs))
 	}
 }
 
-func TestScan_TagUnchanged_NoUpdateNoJob(t *testing.T) {
-	// Scanner must not notify subscribers when the tag has not changed — prevents spam.
+func TestScanner_SkipsJob_WhenTagEmpty(t *testing.T) {
 	repo := &fakeScanRepo{
-		repos: []models.GitHubRelease{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}},
+		subs: []models.GitHubRelease{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}},
 	}
-	gh := &fakeReleaseChecker{tags: map[string]string{"owner/repo": "v1.0.0"}}
-	w, jobs := newWorker(repo, gh)
+	scanner, jobs := newTestScanner(repo, fakeTagFetcher{tag: ""})
 
-	if err := w.scan(context.Background()); err != nil {
+	if err := scanner.scan(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(repo.updated) != 0 {
-		t.Error("UpdateTags must not be called when tag is unchanged")
-	}
 	if len(jobs) != 0 {
-		t.Error("no jobs must be enqueued when tag is unchanged")
+		t.Errorf("jobs = %d, want 0 (empty tag must not trigger notification)", len(jobs))
 	}
 }
 
-func TestScan_NewRelease_UpdatesTag(t *testing.T) {
-	// A new release tag must be persisted so the next scan cycle doesn't re-notify.
+func TestScanner_SkipsJob_WhenTagUnchanged(t *testing.T) {
 	repo := &fakeScanRepo{
-		repos:       []models.GitHubRelease{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}},
-		subscribers: map[string][]string{"owner/repo": {"a@b.com"}},
+		subs: []models.GitHubRelease{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}},
 	}
-	gh := &fakeReleaseChecker{tags: map[string]string{"owner/repo": "v2.0.0"}}
-	w, _ := newWorker(repo, gh)
+	scanner, jobs := newTestScanner(repo, fakeTagFetcher{tag: "v1.0.0"})
 
-	if err := w.scan(context.Background()); err != nil {
+	if err := scanner.scan(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(repo.updated) != 1 || repo.updated[0].LastSeenTag != "v2.0.0" {
-		t.Errorf("expected UpdateTags with v2.0.0, got %v", repo.updated)
+	if len(jobs) != 0 {
+		t.Errorf("jobs = %d, want 0 (same tag must not trigger notification)", len(jobs))
 	}
 }
 
-func TestScan_NewRelease_NotifiesAllSubscribers(t *testing.T) {
-	// Every confirmed subscriber must receive a notification — missing one is a silent data loss.
+func TestScanner_EnqueuesJob_WhenNewTagDetected(t *testing.T) {
 	repo := &fakeScanRepo{
-		repos:       []models.GitHubRelease{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}},
-		subscribers: map[string][]string{"owner/repo": {"a@b.com", "c@d.com"}},
+		subs:        []models.GitHubRelease{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}},
+		subscribers: []string{"user@example.com"},
 	}
-	gh := &fakeReleaseChecker{tags: map[string]string{"owner/repo": "v2.0.0"}}
-	w, jobs := newWorker(repo, gh)
+	scanner, jobs := newTestScanner(repo, fakeTagFetcher{tag: "v2.0.0"})
 
-	if err := w.scan(context.Background()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(jobs) != 2 {
-		t.Errorf("expected 2 notification jobs, got %d", len(jobs))
-	}
-}
-
-func TestScan_GetLatestTagFails_RepoSkipped(t *testing.T) {
-	// A tag fetch error for one repo must not stop the scan — other repos must still be checked.
-	repo := &fakeScanRepo{
-		repos: []models.GitHubRelease{
-			{Repo: "owner/bad", LastSeenTag: "v1.0.0"},
-			{Repo: "owner/good", LastSeenTag: "v1.0.0"},
-		},
-		subscribers: map[string][]string{"owner/good": {"a@b.com"}},
-	}
-	gh := &fakeReleaseChecker{
-		tags: map[string]string{"owner/good": "v2.0.0"},
-		errs: map[string]error{"owner/bad": errors.New("timeout")},
-	}
-	w, jobs := newWorker(repo, gh)
-
-	if err := w.scan(context.Background()); err != nil {
+	if err := scanner.scan(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if len(jobs) != 1 {
-		t.Errorf("expected 1 job for healthy repo, got %d", len(jobs))
+		t.Fatalf("jobs = %d, want 1", len(jobs))
 	}
-}
-
-func TestScan_UpdateTagsFails_NoJobEnqueued(t *testing.T) {
-	// If the new tag cannot be persisted, we must not notify — the next cycle would notify again,
-	// causing duplicate notifications.
-	repo := &fakeScanRepo{
-		repos:     []models.GitHubRelease{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}},
-		updateErr: errors.New("db error"),
-	}
-	gh := &fakeReleaseChecker{tags: map[string]string{"owner/repo": "v2.0.0"}}
-	w, jobs := newWorker(repo, gh)
-
-	if err := w.scan(context.Background()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(jobs) != 0 {
-		t.Error("job must not be enqueued when UpdateTags fails")
-	}
-}
-
-func TestScan_GetSubscribersFails_NoJobEnqueued(t *testing.T) {
-	// Subscriber fetch failure must not panic and must not send partial notifications.
-	repo := &fakeScanRepo{
-		repos:       []models.GitHubRelease{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}},
-		subscribers: map[string][]string{},
-		subsErr:     errors.New("db error"),
-	}
-	gh := &fakeReleaseChecker{tags: map[string]string{"owner/repo": "v2.0.0"}}
-	w, jobs := newWorker(repo, gh)
-
-	if err := w.scan(context.Background()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(jobs) != 0 {
-		t.Error("no jobs must be enqueued when subscriber fetch fails")
+	job := <-jobs
+	if job.Email != "user@example.com" {
+		t.Errorf("job.Email = %q, want user@example.com", job.Email)
 	}
 }

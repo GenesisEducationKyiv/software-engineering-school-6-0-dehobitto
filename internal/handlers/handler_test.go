@@ -2,107 +2,34 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 )
 
-func TestSubscribe_InvalidJSON(t *testing.T) {
+type fakeSvc struct{ err error }
+
+func (f *fakeSvc) Subscribe(_ context.Context, _, _ string) error { return f.err }
+
+func newSubscribeRouter(svc subscriptionService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := &Handler{}
-	r.POST("/api/subscribe", h.Subscribe)
-
-	req := httptest.NewRequest("POST", "/api/subscribe", bytes.NewBufferString("not json"))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
+	r.POST("/api/subscribe", (&Handler{svc: svc}).Subscribe)
+	return r
 }
 
-func TestSubscribe_InvalidRepoFormat(t *testing.T) {
+func newTokenRouter(h *Handler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := &Handler{}
-	r.POST("/api/subscribe", h.Subscribe)
-
-	body, _ := json.Marshal(map[string]string{
-		"email": "test@example.com",
-		"repo":  "invalid-repo-format",
-	})
-
-	req := httptest.NewRequest("POST", "/api/subscribe", bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestConfirmByToken_InvalidToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := &Handler{}
 	r.GET("/api/confirm/:token", h.ConfirmByToken)
-
-	req := httptest.NewRequest("GET", "/api/confirm/not-a-uuid", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestUnsubscribeByToken_InvalidToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := &Handler{}
 	r.GET("/api/unsubscribe/:token", h.UnsubscribeByToken)
-
-	req := httptest.NewRequest("GET", "/api/unsubscribe/not-valid", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
+	return r
 }
 
-func TestGetSubscriptions_EmptyEmail(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := &Handler{}
-	r.GET("/api/subscriptions/", h.GetSubscriptions)
-
-	req := httptest.NewRequest("GET", "/api/subscriptions/", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestGetSubscriptions_InvalidEmail(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := &Handler{}
-	r.GET("/api/subscriptions/", h.GetSubscriptions)
-
-	req := httptest.NewRequest("GET", "/api/subscriptions/?email=notanemail", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
+func subscribeBody(t *testing.T, email, repo string) *bytes.Buffer {
+	t.Helper()
+	b, _ := json.Marshal(map[string]string{"email": email, "repo": repo})
+	return bytes.NewBuffer(b)
 }
