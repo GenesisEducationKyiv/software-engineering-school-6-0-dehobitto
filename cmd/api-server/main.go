@@ -1,4 +1,3 @@
-// Package main is the entry point
 package main
 
 import (
@@ -32,6 +31,10 @@ func main() {
 func run() error {
 	cfg := config.LoadConfig()
 
+	if cfg.BaseURL == "" {
+		return fmt.Errorf("BASE_URL environment variable is required")
+	}
+
 	connectionPool, err := database.Connect(cfg)
 	if err != nil {
 		return fmt.Errorf("connection to database failed: %w", err)
@@ -43,26 +46,29 @@ func run() error {
 	}
 
 	repo := database.NewRepository(connectionPool)
-	redisCache := cache.NewRedisCache(cfg.RedisAddr)
+	redisCache, err := cache.NewRedisCache(context.Background(), cfg.RedisAddr)
+	if err != nil {
+		return fmt.Errorf("connection to redis failed: %w", err)
+	}
 
 	jobsChannel := make(chan workers.NotificationJob, 100)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	group, ctx := errgroup.WithContext(ctx)
+	group, groupCtx := errgroup.WithContext(ctx)
 
 	smtpSender := workers.NewSMTPSender(cfg)
 	notifier := workers.NewNotifierWorker(smtpSender)
 	group.Go(withRecover(func() error {
-		return notifier.Start(ctx, jobsChannel)
+		return notifier.Start(groupCtx, jobsChannel)
 	}))
 
 	githubClient := gh.NewGitHubClient()
 
 	scanner := workers.NewScannerWorker(repo, cfg, jobsChannel, redisCache, githubClient)
 	group.Go(withRecover(func() error {
-		return scanner.StartScanner(ctx)
+		return scanner.StartScanner(groupCtx)
 	}))
 
 	svc := service.NewSubscriptionService(repo, cfg, jobsChannel, redisCache, githubClient, service.RealUUIDGenerator)
@@ -83,11 +89,23 @@ func run() error {
 	})
 
 	group.Go(func() error {
-		<-ctx.Done()
+		<-groupCtx.Done()
+
+		log.Println("Shutting down HTTP server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return srv.Shutdown(shutdownCtx)
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("HTTP server shutdown error: %v", err)
+		}
+
+		log.Println("Closing jobs channel...")
+		close(jobsChannel)
+
+		return nil
 	})
+
+	log.Printf("Server started on :%s", cfg.ServerPort)
 
 	return group.Wait()
 }
