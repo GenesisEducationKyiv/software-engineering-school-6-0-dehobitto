@@ -2,7 +2,6 @@ package service
 
 import "github.com/google/uuid"
 
-// UUIDGenerator abstracts UUID generation so it can be replaced in tests.
 type UUIDGenerator interface {
 	New() string
 }

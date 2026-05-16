@@ -9,7 +9,6 @@ import (
 	"net/http"
 
 	"subber/internal/config"
-	"subber/internal/github"
 	"subber/internal/infra/cache"
 	"subber/internal/models"
 	"subber/internal/workers"
@@ -22,16 +21,21 @@ var (
 	ErrGitHubUnavailable = errors.New("github unavailable")
 )
 
+type gitHubClient interface {
+	CheckIfRepoExists(ctx context.Context, repo, token string) (*http.Response, error)
+	GetLatestTag(ctx context.Context, repo, token string, rc cache.Cache) (string, error)
+}
+
 type SubscriptionService struct {
 	repo    SubscriptionRepository
 	cfg     *config.Config
 	jobs    chan<- workers.NotificationJob
 	cache   cache.Cache
-	github  *github.GitHubClient
+	github  gitHubClient
 	uuidGen UUIDGenerator
 }
 
-func NewSubscriptionService(repo SubscriptionRepository, cfg *config.Config, jobs chan<- workers.NotificationJob, cache cache.Cache, gh *github.GitHubClient, uuidGen UUIDGenerator) *SubscriptionService {
+func NewSubscriptionService(repo SubscriptionRepository, cfg *config.Config, jobs chan<- workers.NotificationJob, cache cache.Cache, gh gitHubClient, uuidGen UUIDGenerator) *SubscriptionService {
 	return &SubscriptionService{
 		repo:    repo,
 		cfg:     cfg,
