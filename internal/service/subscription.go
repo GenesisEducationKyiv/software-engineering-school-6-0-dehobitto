@@ -8,8 +8,6 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/google/uuid"
-
 	"subber/internal/config"
 	"subber/internal/github"
 	"subber/internal/infra/cache"
@@ -25,20 +23,22 @@ var (
 )
 
 type SubscriptionService struct {
-	repo   SubscriptionRepository
-	cfg    *config.Config
-	jobs   chan<- workers.NotificationJob
-	cache  cache.Cache
-	github *github.GitHubClient
+	repo    SubscriptionRepository
+	cfg     *config.Config
+	jobs    chan<- workers.NotificationJob
+	cache   cache.Cache
+	github  *github.GitHubClient
+	uuidGen UUIDGenerator
 }
 
-func NewSubscriptionService(repo SubscriptionRepository, cfg *config.Config, jobs chan<- workers.NotificationJob, cache cache.Cache, gh *github.GitHubClient) *SubscriptionService {
+func NewSubscriptionService(repo SubscriptionRepository, cfg *config.Config, jobs chan<- workers.NotificationJob, cache cache.Cache, gh *github.GitHubClient, uuidGen UUIDGenerator) *SubscriptionService {
 	return &SubscriptionService{
-		repo:   repo,
-		cfg:    cfg,
-		jobs:   jobs,
-		cache:  cache,
-		github: gh,
+		repo:    repo,
+		cfg:     cfg,
+		jobs:    jobs,
+		cache:   cache,
+		github:  gh,
+		uuidGen: uuidGen,
 	}
 }
 
@@ -65,7 +65,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 		Email:       email,
 		Repo:        repo,
 		LastSeenTag: tag,
-		Token:       uuid.New().String(),
+		Token:       s.uuidGen.New(),
 		Confirmed:   false,
 	}
 

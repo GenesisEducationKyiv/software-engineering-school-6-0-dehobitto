@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 func TestSubscribe_InvalidJSON(t *testing.T) {
@@ -105,12 +104,5 @@ func TestGetSubscriptions_InvalidEmail(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestUUIDGeneration(t *testing.T) {
-	token := uuid.New().String()
-	if err := uuid.Validate(token); err != nil {
-		t.Errorf("generated token is not valid UUID: %s", token)
 	}
 }
