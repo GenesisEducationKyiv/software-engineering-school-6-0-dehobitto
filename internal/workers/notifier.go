@@ -1,3 +1,4 @@
+// Package workers provides background workers for notifications and scanning.
 package workers
 
 import (
