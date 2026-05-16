@@ -10,7 +10,7 @@ sh scripts/test.sh
 ```
 
 **Windows (PowerShell):**
-```powershell
+```sh
 .\scripts\test.ps1
 ```
 
