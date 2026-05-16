@@ -6,7 +6,18 @@ import (
 )
 
 func TestLoadConfig_Defaults(t *testing.T) {
+	saved := os.Environ()
 	os.Clearenv()
+	defer func() {
+		for _, kv := range saved {
+			for i := range kv {
+				if kv[i] == '=' {
+					os.Setenv(kv[:i], kv[i+1:])
+					break
+				}
+			}
+		}
+	}()
 
 	cfg := LoadConfig()
 
