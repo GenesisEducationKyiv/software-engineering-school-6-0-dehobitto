@@ -2,14 +2,13 @@ package github
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-func newTestClient(url string) *Client {
-	return &Client{
+func newTestClient(url string) *GitHubClient {
+	return &GitHubClient{
 		baseURL:    url,
 		httpClient: &http.Client{},
 	}
@@ -22,11 +21,10 @@ func TestGetLatestTag_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tag, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo")
+	tag, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo", "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	if tag != "v1.2.3" {
 		t.Errorf("expected v1.2.3, got %s", tag)
 	}
@@ -38,7 +36,7 @@ func TestGetLatestTag_NotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tag, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo")
+	tag, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo", "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -53,7 +51,7 @@ func TestGetLatestTag_RateLimit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo")
+	_, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo", "", nil)
 	if err == nil {
 		t.Fatal("expected error for 429, got nil")
 	}
@@ -65,8 +63,14 @@ func TestCheckIfRepoExists_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	if err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/repo"); err != nil {
+	resp, err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/repo", "")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
 }
 
@@ -76,9 +80,14 @@ func TestCheckIfRepoExists_NotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/nonexistent")
-	if !errors.Is(err, ErrNotFound) {
-		t.Errorf("expected ErrNotFound, got %v", err)
+	resp, err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/nonexistent", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
 	}
 }
 
@@ -93,10 +102,7 @@ func TestGetLatestTag_AuthHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	c := newTestClient(server.URL)
-	c.token = "test-token"
-
-	tag, err := c.GetLatestTag(context.Background(), "owner/repo")
+	tag, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo", "test-token", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

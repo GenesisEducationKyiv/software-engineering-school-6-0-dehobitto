@@ -36,21 +36,16 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.APIKey != "" {
 		t.Errorf("expected default APIKey to be empty, got %s", cfg.APIKey)
 	}
-	if cfg.BaseURL != "" {
-		t.Errorf("expected default BaseURL to be empty, got %s", cfg.BaseURL)
-	}
 }
 
 func TestLoadConfig_FromEnv(t *testing.T) {
 	os.Setenv("DB_HOST", "customhost")
 	os.Setenv("DB_PORT", "9999")
 	os.Setenv("API_KEY", "my-secret")
-	os.Setenv("BASE_URL", "http://example.com")
 	defer func() {
 		os.Unsetenv("DB_HOST")
 		os.Unsetenv("DB_PORT")
 		os.Unsetenv("API_KEY")
-		os.Unsetenv("BASE_URL")
 	}()
 
 	cfg := LoadConfig()
@@ -63,8 +58,5 @@ func TestLoadConfig_FromEnv(t *testing.T) {
 	}
 	if cfg.APIKey != "my-secret" {
 		t.Errorf("expected APIKey=my-secret, got %s", cfg.APIKey)
-	}
-	if cfg.BaseURL != "http://example.com" {
-		t.Errorf("expected BaseURL=http://example.com, got %s", cfg.BaseURL)
 	}
 }
