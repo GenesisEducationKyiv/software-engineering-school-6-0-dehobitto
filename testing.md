@@ -4,8 +4,14 @@ Prerequisites: **git**, **docker**, **Go**.
 
 ## Run All Tests
 
+**Linux / macOS / Git Bash:**
 ```sh
-make test
+sh scripts/test.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+.\scripts\test.ps1
 ```
 
 ---
@@ -15,8 +21,6 @@ make test
 No external dependencies.
 
 ```sh
-make test-unit
-# or
 go test ./...
 ```
 
@@ -25,8 +29,6 @@ go test ./...
 PostgreSQL spins up automatically via Docker (testcontainers). Docker must be running.
 
 ```sh
-make test-integration
-# or
 go test -tags integration ./tests/integration/...
 ```
 
@@ -35,7 +37,5 @@ go test -tags integration ./tests/integration/...
 Static HTML is served locally, API calls are mocked in the browser — no backend needed. Everything runs inside Docker.
 
 ```sh
-make test-e2e
-# or
 docker build -f tests/e2e/Dockerfile -t subber-e2e . && docker run --rm subber-e2e
 ```
