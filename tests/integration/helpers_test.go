@@ -3,7 +3,9 @@
 package integration
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -84,6 +86,86 @@ func newTestEnv(t *testing.T, gh gitHubFake) *testEnv {
 	router := routes.SetupRouter(dbRepo, svc, cfg)
 
 	return &testEnv{router: router, pool: sharedPool}
+}
+
+// subscriptionExists checks if a subscription row exists in DB.
+func subscriptionExists(t *testing.T, pool *pgxpool.Pool, email, repo string) bool {
+	t.Helper()
+	var exists bool
+	err := pool.QueryRow(context.Background(),
+		`SELECT EXISTS(SELECT 1 FROM subscriptions WHERE email=$1 AND repo=$2)`,
+		email, repo,
+	).Scan(&exists)
+	if err != nil {
+		t.Fatalf("subscriptionExists query: %v", err)
+	}
+	return exists
+}
+
+// isConfirmed checks if a subscription is confirmed in DB.
+func isConfirmed(t *testing.T, pool *pgxpool.Pool, email, repo string) bool {
+	t.Helper()
+	var confirmed bool
+	err := pool.QueryRow(context.Background(),
+		`SELECT confirmed FROM subscriptions WHERE email=$1 AND repo=$2`,
+		email, repo,
+	).Scan(&confirmed)
+	if err != nil {
+		t.Fatalf("isConfirmed query: %v", err)
+	}
+	return confirmed
+}
+
+// tokenForSubscription returns the token stored for a subscription.
+func tokenForSubscription(t *testing.T, pool *pgxpool.Pool, email, repo string) string {
+	t.Helper()
+	var token string
+	err := pool.QueryRow(context.Background(),
+		`SELECT token FROM subscriptions WHERE email=$1 AND repo=$2`,
+		email, repo,
+	).Scan(&token)
+	if err != nil {
+		t.Fatalf("tokenForSubscription query: %v", err)
+	}
+	return token
+}
+
+func (e *testEnv) subscribe(t *testing.T, email, repo string) *httptest.ResponseRecorder {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"email": email, "repo": repo})
+	req := httptest.NewRequest(http.MethodPost, "/api/subscribe", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "test-key")
+	w := httptest.NewRecorder()
+	e.router.ServeHTTP(w, req)
+	return w
+}
+
+func (e *testEnv) confirm(t *testing.T, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/confirm/"+token, nil)
+	w := httptest.NewRecorder()
+	e.router.ServeHTTP(w, req)
+	return w
+}
+
+func (e *testEnv) unsubscribe(t *testing.T, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/unsubscribe/"+token, nil)
+	w := httptest.NewRecorder()
+	e.router.ServeHTTP(w, req)
+	return w
+}
+
+func (e *testEnv) getSubscriptions(t *testing.T, email, apiKey string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/?email="+email, nil)
+	if apiKey != "" {
+		req.Header.Set("X-API-Key", apiKey)
+	}
+	w := httptest.NewRecorder()
+	e.router.ServeHTTP(w, req)
+	return w
 }
 
 // gitHubFake satisfies the unexported service.gitHubClient interface.
