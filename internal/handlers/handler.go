@@ -1,24 +1,24 @@
+// Package handlers provides functions for all API endpoints
 package handlers
 
 import (
-	"subber/internal/config"
-	"subber/internal/infra/cache"
-	"subber/internal/infra/database"
-	"subber/internal/workers"
+	"context"
+
+	"subber/internal/service"
 )
 
-type Handler struct {
-	repo  *database.Repository
-	cfg   *config.Config
-	jobs  chan<- workers.NotificationJob
-	cache *cache.RedisCache
+type subscriptionService interface {
+	Subscribe(ctx context.Context, email, repo string) error
 }
 
-func NewHandler(repo *database.Repository, cfg *config.Config, jobs chan<- workers.NotificationJob, rc *cache.RedisCache) *Handler {
+type Handler struct {
+	repo SubscriptionRepository
+	svc  subscriptionService
+}
+
+func NewHandler(repo SubscriptionRepository, svc *service.SubscriptionService) *Handler {
 	return &Handler{
-		repo:  repo,
-		cfg:   cfg,
-		jobs:  jobs,
-		cache: rc,
+		repo: repo,
+		svc:  svc,
 	}
 }

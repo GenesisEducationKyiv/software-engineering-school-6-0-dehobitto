@@ -1,4 +1,4 @@
-name: Test
+name: 'Test: Integration'
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Run Go Tests
+    name: Run Integration Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -22,4 +22,4 @@ jobs:
           cache: false
 
       - name: Test
-        run: go test -v ./...
+        run: go test -v -tags integration ./tests/integration/...

@@ -1,3 +1,4 @@
+// Package main is the entry point
 package main
 
 import (
@@ -14,9 +15,11 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"subber/internal/config"
+	gh "subber/internal/github"
 	"subber/internal/infra/cache"
 	"subber/internal/infra/database"
 	"subber/internal/routes"
+	"subber/internal/service"
 	"subber/internal/workers"
 )
 
@@ -29,10 +32,6 @@ func main() {
 func run() error {
 	cfg := config.LoadConfig()
 
-	if cfg.BaseURL == "" {
-		return fmt.Errorf("BASE_URL environment variable is required")
-	}
-
 	connectionPool, err := database.Connect(cfg)
 	if err != nil {
 		return fmt.Errorf("connection to database failed: %w", err)
@@ -44,29 +43,31 @@ func run() error {
 	}
 
 	repo := database.NewRepository(connectionPool)
-	redisCache, err := cache.NewRedisCache(context.Background(), cfg.RedisAddr)
-	if err != nil {
-		return fmt.Errorf("connection to redis failed: %w", err)
-	}
+	redisCache := cache.NewRedisCache(cfg.RedisAddr)
 
 	jobsChannel := make(chan workers.NotificationJob, 100)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	group, groupCtx := errgroup.WithContext(ctx)
+	group, ctx := errgroup.WithContext(ctx)
 
-	notifier := workers.NewNotifierWorker(cfg)
+	smtpSender := workers.NewSMTPSender(cfg)
+	notifier := workers.NewNotifierWorker(smtpSender)
 	group.Go(withRecover(func() error {
-		return notifier.Start(groupCtx, jobsChannel)
+		return notifier.Start(ctx, jobsChannel)
 	}))
 
-	scanner := workers.NewScannerWorker(repo, cfg, jobsChannel, redisCache)
+	githubClient := gh.NewGitHubClient()
+
+	scanner := workers.NewScannerWorker(repo, cfg, jobsChannel, redisCache, githubClient)
 	group.Go(withRecover(func() error {
-		return scanner.StartScanner(groupCtx)
+		return scanner.StartScanner(ctx)
 	}))
 
-	router := routes.SetupRouter(repo, cfg, jobsChannel, redisCache)
+	svc := service.NewSubscriptionService(repo, cfg, jobsChannel, redisCache, githubClient, service.RealUUIDGenerator)
+
+	router := routes.SetupRouter(repo, svc, cfg)
 	srv := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
 		Handler:           router,
@@ -82,23 +83,11 @@ func run() error {
 	})
 
 	group.Go(func() error {
-		<-groupCtx.Done()
-
-		log.Println("Shutting down HTTP server...")
+		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Printf("HTTP server shutdown error: %v", err)
-		}
-
-		log.Println("Closing jobs channel...")
-		close(jobsChannel)
-
-		return nil
+		return srv.Shutdown(shutdownCtx)
 	})
-
-	log.Printf("Server started on :%s", cfg.ServerPort)
 
 	return group.Wait()
 }

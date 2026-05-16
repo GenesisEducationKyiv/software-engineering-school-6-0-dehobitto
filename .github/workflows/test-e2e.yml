@@ -1,0 +1,22 @@
+name: 'Test: E2E'
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    name: Run E2E Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build E2E image
+        run: docker build -f tests/e2e/Dockerfile -t subber-e2e .
+
+      - name: Run E2E tests
+        run: docker run --rm subber-e2e

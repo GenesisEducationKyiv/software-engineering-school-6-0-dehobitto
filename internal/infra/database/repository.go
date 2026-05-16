@@ -42,9 +42,13 @@ func (r *Repository) ConfirmSubscriptionByToken(ctx context.Context, token strin
 	WHERE token = $1
 	`
 
-	_, err := r.pool.Exec(ctx, query, token)
+	result, err := r.pool.Exec(ctx, query, token)
 	if err != nil {
 		return fmt.Errorf("confirm subscription: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("token not found")
 	}
 
 	return nil
