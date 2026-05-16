@@ -13,12 +13,16 @@ import (
 	"subber/internal/models"
 )
 
+type githubTagFetcher interface {
+	GetLatestTag(ctx context.Context, repo, token string, rc cache.Cache) (string, error)
+}
+
 type ScannerWorker struct {
 	repo   ScanRepository
 	cfg    *config.Config
 	jobs   chan<- NotificationJob
 	cache  cache.Cache
-	github *github.GitHubClient
+	github githubTagFetcher
 }
 
 func NewScannerWorker(repo ScanRepository, cfg *config.Config, jobs chan<- NotificationJob, cache cache.Cache, gh *github.GitHubClient) *ScannerWorker {
