@@ -2,10 +2,9 @@ package github
 
 import (
 	"context"
-	"testing"
-
 	"net/http"
 	"net/http/httptest"
+	"testing"
 )
 
 func newTestClient(url string) *GitHubClient {
