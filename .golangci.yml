@@ -38,7 +38,6 @@ linters:
           disabled: true
     errcheck:
       exclude-functions:
-        - (io.ReadCloser).Close
         - (*github.com/gin-gonic/gin.Engine).SetTrustedProxies
 
   exclusions:
