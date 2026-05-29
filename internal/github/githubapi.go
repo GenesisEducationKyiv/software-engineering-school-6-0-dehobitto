@@ -48,11 +48,7 @@ func (c *GitHubClient) GetLatestTag(ctx context.Context, repo, token string, rc 
 	if err != nil {
 		return "", err
 	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			log.Printf("failed to close github response body: %v", err)
-		}
-	}()
+	defer resp.Body.Close() //nolint:errcheck
 
 	switch resp.StatusCode {
 	case http.StatusNotFound:
