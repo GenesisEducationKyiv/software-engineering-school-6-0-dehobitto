@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-func newTestClient(url string) *GitHubClient {
-	return &GitHubClient{
+func newTestClient(url string) *Client {
+	return &Client{
 		baseURL:    url,
 		httpClient: &http.Client{},
 	}

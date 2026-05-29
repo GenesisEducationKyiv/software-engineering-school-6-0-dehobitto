@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"subber/internal/models"
-	"subber/internal/service"
 )
 
 type SubscriptionRepository interface {
@@ -13,12 +12,16 @@ type SubscriptionRepository interface {
 	GetSubscriptions(ctx context.Context, email string) ([]models.Subscription, error)
 }
 
-type Handler struct {
-	repo SubscriptionRepository
-	svc  *service.SubscriptionService
+type SubscriptionService interface {
+	Subscribe(ctx context.Context, email, repo string) error
 }
 
-func NewHandler(repo SubscriptionRepository, svc *service.SubscriptionService) *Handler {
+type Handler struct {
+	repo SubscriptionRepository
+	svc  SubscriptionService
+}
+
+func NewHandler(repo SubscriptionRepository, svc SubscriptionService) *Handler {
 	return &Handler{
 		repo: repo,
 		svc:  svc,
