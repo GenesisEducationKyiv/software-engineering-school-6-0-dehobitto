@@ -21,7 +21,7 @@ func TestGetLatestTag_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tag, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo", "", nil)
+	tag, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestGetLatestTag_NotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tag, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo", "", nil)
+	tag, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestGetLatestTag_RateLimit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo", "", nil)
+	_, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo")
 	if err == nil {
 		t.Fatal("expected error for 429, got nil")
 	}
@@ -64,7 +64,7 @@ func TestCheckIfRepoExists_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	resp, err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/repo", "")
+	resp, err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestCheckIfRepoExists_NotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	resp, err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/nonexistent", "")
+	resp, err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/nonexistent")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -103,7 +103,10 @@ func TestGetLatestTag_AuthHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tag, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo", "test-token", nil)
+	c := newTestClient(server.URL)
+	c.token = "test-token"
+
+	tag, err := c.GetLatestTag(context.Background(), "owner/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

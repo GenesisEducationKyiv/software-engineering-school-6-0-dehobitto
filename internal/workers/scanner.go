@@ -6,9 +6,6 @@ import (
 	"log"
 	"time"
 
-	"subber/internal/config"
-	"subber/internal/github"
-	"subber/internal/infra/cache"
 	"subber/internal/metrics"
 	"subber/internal/models"
 )
@@ -19,20 +16,20 @@ type ScanRepository interface {
 	UpdateTags(ctx context.Context, repo models.GitHubRelease) error
 }
 
-type ScannerWorker struct {
-	repo   ScanRepository
-	cfg    *config.Config
-	jobs   chan<- NotificationJob
-	cache  cache.Cache
-	github *github.GitHubClient
+type ReleaseChecker interface {
+	GetLatestTag(ctx context.Context, repo string) (string, error)
 }
 
-func NewScannerWorker(repo ScanRepository, cfg *config.Config, jobs chan<- NotificationJob, cache cache.Cache, gh *github.GitHubClient) *ScannerWorker {
+type ScannerWorker struct {
+	repo   ScanRepository
+	jobs   chan<- NotificationJob
+	github ReleaseChecker
+}
+
+func NewScannerWorker(repo ScanRepository, jobs chan<- NotificationJob, gh ReleaseChecker) *ScannerWorker {
 	return &ScannerWorker{
 		repo:   repo,
-		cfg:    cfg,
 		jobs:   jobs,
-		cache:  cache,
 		github: gh,
 	}
 }
@@ -73,7 +70,7 @@ func (w *ScannerWorker) checkForNewReleases(ctx context.Context, repos []models.
 	var updated []models.GitHubRelease
 
 	for _, repo := range repos {
-		newTag, err := w.github.GetLatestTag(ctx, repo.Repo, w.cfg.GitHubToken, w.cache)
+		newTag, err := w.github.GetLatestTag(ctx, repo.Repo)
 		if err != nil {
 			log.Printf("failed to get tag for %s: %v", repo.Repo, err)
 			continue

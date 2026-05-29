@@ -64,14 +64,14 @@ func run() error {
 		return notifier.Start(groupCtx, jobsChannel)
 	}))
 
-	githubClient := gh.NewGitHubClient()
+	githubClient := gh.NewClient(cfg.GitHubToken, redisCache)
 
-	scanner := workers.NewScannerWorker(repo, cfg, jobsChannel, redisCache, githubClient)
+	scanner := workers.NewScannerWorker(repo, jobsChannel, githubClient)
 	group.Go(withRecover(func() error {
 		return scanner.StartScanner(groupCtx)
 	}))
 
-	svc := service.NewSubscriptionService(repo, cfg, jobsChannel, redisCache, githubClient)
+	svc := service.NewSubscriptionService(repo, cfg.BaseURL, jobsChannel, githubClient)
 
 	router := routes.SetupRouter(repo, svc, cfg)
 	srv := &http.Server{

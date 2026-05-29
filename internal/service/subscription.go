@@ -10,9 +10,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"subber/internal/config"
-	"subber/internal/github"
-	"subber/internal/infra/cache"
 	"subber/internal/models"
 	"subber/internal/workers"
 )
@@ -20,6 +17,11 @@ import (
 type SubscriptionRepository interface {
 	SubscriptionExists(ctx context.Context, email, repo string) (bool, error)
 	SaveSubscription(ctx context.Context, sub models.Subscription) error
+}
+
+type GitHubClient interface {
+	GetLatestTag(ctx context.Context, repo string) (string, error)
+	CheckIfRepoExists(ctx context.Context, repo string) (*http.Response, error)
 }
 
 var (
@@ -30,20 +32,18 @@ var (
 )
 
 type SubscriptionService struct {
-	repo   SubscriptionRepository
-	cfg    *config.Config
-	jobs   chan<- workers.NotificationJob
-	cache  cache.Cache
-	github *github.GitHubClient
+	repo    SubscriptionRepository
+	baseURL string
+	jobs    chan<- workers.NotificationJob
+	github  GitHubClient
 }
 
-func NewSubscriptionService(repo SubscriptionRepository, cfg *config.Config, jobs chan<- workers.NotificationJob, cache cache.Cache, gh *github.GitHubClient) *SubscriptionService {
+func NewSubscriptionService(repo SubscriptionRepository, baseURL string, jobs chan<- workers.NotificationJob, gh GitHubClient) *SubscriptionService {
 	return &SubscriptionService{
-		repo:   repo,
-		cfg:    cfg,
-		jobs:   jobs,
-		cache:  cache,
-		github: gh,
+		repo:    repo,
+		baseURL: baseURL,
+		jobs:    jobs,
+		github:  gh,
 	}
 }
 
@@ -61,7 +61,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 		return err
 	}
 
-	tag, err := s.github.GetLatestTag(ctx, repo, s.cfg.GitHubToken, s.cache)
+	tag, err := s.github.GetLatestTag(ctx, repo)
 	if err != nil {
 		log.Printf("Warning: could not fetch initial tag for %s: %v", repo, err)
 	}
@@ -83,7 +83,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 }
 
 func (s *SubscriptionService) validateRepoOnGitHub(ctx context.Context, repo string) error {
-	resp, err := s.github.CheckIfRepoExists(ctx, repo, s.cfg.GitHubToken)
+	resp, err := s.github.CheckIfRepoExists(ctx, repo)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrGitHubUnavailable, err)
 	}
@@ -106,7 +106,7 @@ func (s *SubscriptionService) validateRepoOnGitHub(ctx context.Context, repo str
 }
 
 func (s *SubscriptionService) enqueueConfirmation(email, token string) {
-	confirmURL := fmt.Sprintf("%s/api/confirm/%s", s.cfg.BaseURL, token)
+	confirmURL := fmt.Sprintf("%s/api/confirm/%s", s.baseURL, token)
 	message := fmt.Sprintf(
 		"Welcome! Please confirm your subscription to GitHub repository updates by clicking here: %s",
 		confirmURL,
