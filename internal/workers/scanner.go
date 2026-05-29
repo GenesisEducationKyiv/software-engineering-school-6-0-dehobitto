@@ -22,11 +22,11 @@ type ReleaseChecker interface {
 
 type ScannerWorker struct {
 	repo   ScanRepository
-	jobs   chan<- NotificationJob
+	jobs   chan<- models.NotificationJob
 	github ReleaseChecker
 }
 
-func NewScannerWorker(repo ScanRepository, jobs chan<- NotificationJob, gh ReleaseChecker) *ScannerWorker {
+func NewScannerWorker(repo ScanRepository, jobs chan<- models.NotificationJob, gh ReleaseChecker) *ScannerWorker {
 	return &ScannerWorker{
 		repo:   repo,
 		jobs:   jobs,
@@ -107,7 +107,7 @@ func (w *ScannerWorker) enqueueNotifications(repo models.GitHubRelease) {
 	}
 
 	for _, email := range emails {
-		w.jobs <- NotificationJob{
+		w.jobs <- models.NotificationJob{
 			Email:   email,
 			Message: fmt.Sprintf("New release %s for %s!\n", repo.LastSeenTag, repo.Repo),
 		}

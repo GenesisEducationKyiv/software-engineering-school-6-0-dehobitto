@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 
 	"subber/internal/models"
-	"subber/internal/workers"
 )
 
 type SubscriptionRepository interface {
@@ -34,11 +33,11 @@ var (
 type SubscriptionService struct {
 	repo    SubscriptionRepository
 	baseURL string
-	jobs    chan<- workers.NotificationJob
+	jobs    chan<- models.NotificationJob
 	github  GitHubClient
 }
 
-func NewSubscriptionService(repo SubscriptionRepository, baseURL string, jobs chan<- workers.NotificationJob, gh GitHubClient) *SubscriptionService {
+func NewSubscriptionService(repo SubscriptionRepository, baseURL string, jobs chan<- models.NotificationJob, gh GitHubClient) *SubscriptionService {
 	return &SubscriptionService{
 		repo:    repo,
 		baseURL: baseURL,
@@ -113,7 +112,7 @@ func (s *SubscriptionService) enqueueConfirmation(email, token string) {
 	)
 
 	select {
-	case s.jobs <- workers.NotificationJob{Email: email, Message: message}:
+	case s.jobs <- models.NotificationJob{Email: email, Message: message}:
 		log.Printf("Confirmation job queued for: %s", email)
 	default:
 		log.Printf("Critical: notification channel full, dropping confirmation for: %s", email)

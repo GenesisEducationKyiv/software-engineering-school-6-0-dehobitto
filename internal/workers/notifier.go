@@ -5,12 +5,8 @@ import (
 	"log"
 
 	"subber/internal/metrics"
+	"subber/internal/models"
 )
-
-type NotificationJob struct {
-	Email   string
-	Message string
-}
 
 type NotifierWorker struct {
 	sender EmailSender
@@ -20,7 +16,7 @@ func NewNotifierWorker(sender EmailSender) *NotifierWorker {
 	return &NotifierWorker{sender: sender}
 }
 
-func (n *NotifierWorker) Start(ctx context.Context, jobs <-chan NotificationJob) error {
+func (n *NotifierWorker) Start(ctx context.Context, jobs <-chan models.NotificationJob) error {
 	log.Println("Notifier worker started")
 
 	for {

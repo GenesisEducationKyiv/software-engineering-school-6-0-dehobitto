@@ -17,6 +17,7 @@ import (
 	gh "subber/internal/github"
 	"subber/internal/infra/cache"
 	"subber/internal/infra/database"
+	"subber/internal/models"
 	"subber/internal/routes"
 	"subber/internal/service"
 	"subber/internal/workers"
@@ -51,7 +52,7 @@ func run() error {
 		return fmt.Errorf("connection to redis failed: %w", err)
 	}
 
-	jobsChannel := make(chan workers.NotificationJob, 100)
+	jobsChannel := make(chan models.NotificationJob, 100)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
