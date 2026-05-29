@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -40,7 +39,6 @@ func (c *GitHubClient) GetLatestTag(ctx context.Context, repo, token string, rc 
 	if err != nil {
 		return "", err
 	}
-
 	req.Header.Set("User-Agent", "Go-Subber-App")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -72,9 +70,7 @@ func (c *GitHubClient) GetLatestTag(ctx context.Context, repo, token string, rc 
 	}
 
 	if rc != nil && release.LastSeenTag != "" {
-		if err := rc.Set(ctx, cacheKey, release.LastSeenTag, 10*time.Minute); err != nil {
-			log.Printf("failed to cache tag for %s: %v", cacheKey, err)
-		}
+		_ = rc.Set(ctx, cacheKey, release.LastSeenTag, 45*time.Second)
 	}
 
 	return release.LastSeenTag, nil
