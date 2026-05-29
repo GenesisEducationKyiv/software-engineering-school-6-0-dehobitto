@@ -17,6 +17,11 @@ import (
 	"subber/internal/workers"
 )
 
+type SubscriptionRepository interface {
+	SubscriptionExists(ctx context.Context, email, repo string) (bool, error)
+	SaveSubscription(ctx context.Context, sub models.Subscription) error
+}
+
 var (
 	ErrAlreadySubscribed = errors.New("already subscribed")
 	ErrRepoNotFound      = errors.New("repository not found")
