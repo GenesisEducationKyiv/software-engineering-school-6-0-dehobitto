@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 
 	"github.com/google/uuid"
 
+	"subber/internal/github"
 	"subber/internal/models"
 )
 
@@ -20,7 +20,7 @@ type SubscriptionRepository interface {
 
 type GitHubClient interface {
 	GetLatestTag(ctx context.Context, repo string) (string, error)
-	CheckIfRepoExists(ctx context.Context, repo string) (*http.Response, error)
+	CheckIfRepoExists(ctx context.Context, repo string) error
 }
 
 var (
@@ -82,25 +82,16 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 }
 
 func (s *SubscriptionService) validateRepoOnGitHub(ctx context.Context, repo string) error {
-	resp, err := s.github.CheckIfRepoExists(ctx, repo)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrGitHubUnavailable, err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			log.Printf("failed to close github response body: %v", err)
-		}
-	}()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
+	err := s.github.CheckIfRepoExists(ctx, repo)
+	switch {
+	case err == nil:
 		return nil
-	case http.StatusNotFound:
+	case errors.Is(err, github.ErrNotFound):
 		return ErrRepoNotFound
-	case http.StatusTooManyRequests:
+	case errors.Is(err, github.ErrRateLimit):
 		return ErrGitHubRateLimit
 	default:
-		return ErrGitHubUnavailable
+		return fmt.Errorf("%w: %w", ErrGitHubUnavailable, err)
 	}
 }
 

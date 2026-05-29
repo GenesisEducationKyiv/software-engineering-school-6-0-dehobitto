@@ -82,12 +82,12 @@ func (c *Client) GetLatestTag(ctx context.Context, repo string) (string, error) 
 	return release.LastSeenTag, nil
 }
 
-func (c *Client) CheckIfRepoExists(ctx context.Context, repo string) (*http.Response, error) {
+func (c *Client) CheckIfRepoExists(ctx context.Context, repo string) error {
 	link := fmt.Sprintf("%s/repos/%s", c.baseURL, repo)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, link, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	req.Header.Set("User-Agent", "Go-Subber-App")
@@ -95,5 +95,20 @@ func (c *Client) CheckIfRepoExists(ctx context.Context, repo string) (*http.Resp
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
-	return c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusNotFound:
+		return ErrNotFound
+	case http.StatusTooManyRequests:
+		return ErrRateLimit
+	default:
+		return fmt.Errorf("github error: %d", resp.StatusCode)
+	}
 }

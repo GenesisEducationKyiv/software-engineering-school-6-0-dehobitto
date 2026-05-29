@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -64,14 +65,8 @@ func TestCheckIfRepoExists_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	resp, err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/repo")
-	if err != nil {
+	if err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/repo"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
 }
 
@@ -81,14 +76,9 @@ func TestCheckIfRepoExists_NotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	resp, err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/nonexistent")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("expected 404, got %d", resp.StatusCode)
+	err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/nonexistent")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 
