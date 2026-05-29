@@ -12,6 +12,12 @@ import (
 	"subber/internal/models"
 )
 
+const (
+	defaultBaseURL = "https://api.github.com"
+	userAgent      = "Go-Subber-App"
+	cacheKeyPrefix = "github:latest_tag:"
+)
+
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
@@ -21,7 +27,7 @@ type Client struct {
 
 func NewClient(token string, c cache.Cache) *Client {
 	return &Client{
-		baseURL:    "https://api.github.com",
+		baseURL:    defaultBaseURL,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		token:      token,
 		cache:      c,
@@ -29,7 +35,7 @@ func NewClient(token string, c cache.Cache) *Client {
 }
 
 func (c *Client) GetLatestTag(ctx context.Context, repo string) (string, error) {
-	cacheKey := "github:latest_tag:" + repo
+	cacheKey := cacheKeyPrefix + repo
 
 	if c.cache != nil {
 		cached, err := c.cache.Get(ctx, cacheKey)
@@ -47,7 +53,7 @@ func (c *Client) GetLatestTag(ctx context.Context, repo string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "Go-Subber-App")
+	req.Header.Set("User-Agent", userAgent)
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
@@ -90,7 +96,7 @@ func (c *Client) CheckIfRepoExists(ctx context.Context, repo string) error {
 		return err
 	}
 
-	req.Header.Set("User-Agent", "Go-Subber-App")
+	req.Header.Set("User-Agent", userAgent)
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}

@@ -7,10 +7,9 @@ import (
 	"subber/internal/config"
 	"subber/internal/handlers"
 	"subber/internal/middleware"
-	"subber/internal/service"
 )
 
-func SetupRouter(repo handlers.SubscriptionRepository, svc *service.SubscriptionService, cfg *config.Config) *gin.Engine {
+func SetupRouter(repo handlers.SubscriptionRepository, svc handlers.SubscriptionService, cfg *config.Config) *gin.Engine {
 	r := gin.Default()
 	r.SetTrustedProxies(nil) //nolint:gosec // nil input cannot produce a parse error
 
