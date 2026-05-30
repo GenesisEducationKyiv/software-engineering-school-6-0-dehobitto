@@ -128,7 +128,7 @@ func setupLogger(cfg *config.Config) (func(), error) {
 
 	var logFile *os.File
 	if cfg.LogFile != "" {
-		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			return func() {}, fmt.Errorf("open log file: %w", err)
 		}
