@@ -62,7 +62,26 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q 'available'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
     restart: unless-stopped
+
+  kibana-setup:
+    image: curlimages/curl:latest
+    container_name: subber_kibana_setup
+    volumes:
+      - ./docker/kibana:/kibana:ro
+    depends_on:
+      kibana:
+        condition: service_healthy
+    command: >
+      curl -s -X POST "http://kibana:5601/api/saved_objects/_import?overwrite=true"
+      -H "kbn-xsrf: true"
+      --form file=@/kibana/dashboards.ndjson
+    restart: "no"
 
   subber:
     depends_on:
