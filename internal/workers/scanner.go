@@ -3,7 +3,6 @@ package workers
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"subber/internal/metrics"
@@ -47,7 +46,7 @@ func (w *ScannerWorker) StartScanner(ctx context.Context) error {
 			err := w.scan(scanCtx)
 			cancel()
 			if err != nil {
-				log.Printf("Scan failed: %v", err)
+				log.WithError(err).Error("scan cycle failed")
 			}
 			metrics.ScanCyclesTotal.Inc()
 		}
@@ -72,11 +71,12 @@ func (w *ScannerWorker) checkForNewReleases(ctx context.Context, repos []models.
 	for _, repo := range repos {
 		newTag, err := w.github.GetLatestTag(ctx, repo.Repo)
 		if err != nil {
-			log.Printf("failed to get tag for %s: %v", repo.Repo, err)
+			log.WithField("repo", repo.Repo).WithError(err).Error("failed to get tag")
 			continue
 		}
 
 		if newTag != "" && newTag != repo.LastSeenTag {
+			log.WithField("repo", repo.Repo).WithField("tag", newTag).Info("new release detected")
 			repo.LastSeenTag = newTag
 			updated = append(updated, repo)
 		}
@@ -89,7 +89,7 @@ func (w *ScannerWorker) checkForNewReleases(ctx context.Context, repos []models.
 func (w *ScannerWorker) persistAndNotify(ctx context.Context, repos []models.GitHubRelease) {
 	for _, repo := range repos {
 		if err := w.repo.UpdateTags(ctx, repo); err != nil {
-			log.Printf("failed to update tag in db for %s: %v", repo.Repo, err)
+			log.WithField("repo", repo.Repo).WithError(err).Error("failed to update tag in db")
 			continue
 		}
 
@@ -102,13 +102,14 @@ func (w *ScannerWorker) enqueueNotifications(repo models.GitHubRelease) {
 	// Use a background context so a cancelled scan context doesn't drop notifications.
 	emails, err := w.repo.GetSubscribers(context.Background(), repo.Repo)
 	if err != nil {
-		log.Printf("failed to get subscribers for %s: %v", repo.Repo, err)
+		log.WithField("repo", repo.Repo).WithError(err).Error("failed to get subscribers")
 		return
 	}
 
 	for _, email := range emails {
 		w.jobs <- models.NotificationJob{
 			Email:   email,
+			Repo:    repo.Repo,
 			Message: fmt.Sprintf("New release %s for %s!\n", repo.LastSeenTag, repo.Repo),
 		}
 	}

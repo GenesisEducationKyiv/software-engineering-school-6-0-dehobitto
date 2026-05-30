@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -31,7 +30,7 @@ func (r *Repository) SaveSubscription(ctx context.Context, sub models2.Subscript
 		return fmt.Errorf("save subscription: %w", err)
 	}
 
-	log.Printf("Subscription saved for %s on %s", sub.Email, sub.Repo)
+	log.WithField("email", sub.Email).WithField("repo", sub.Repo).Info("subscription saved")
 	return nil
 }
 

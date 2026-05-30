@@ -4,8 +4,11 @@ package handlers
 import (
 	"context"
 
+	"subber/internal/logger"
 	"subber/internal/models"
 )
+
+var log = logger.New().WithField("component", "handler")
 
 type SubscriptionRepository interface {
 	ConfirmSubscriptionByToken(ctx context.Context, token string) error

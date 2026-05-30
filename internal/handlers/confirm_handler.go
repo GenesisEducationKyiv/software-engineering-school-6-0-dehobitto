@@ -10,6 +10,8 @@ import (
 func (h *Handler) ConfirmByToken(c *gin.Context) {
 	token := c.Param("token")
 
+	log.WithField("action", "confirm").WithField("token", token).Info("user action")
+
 	if err := uuid.Validate(token); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token"})
 		return

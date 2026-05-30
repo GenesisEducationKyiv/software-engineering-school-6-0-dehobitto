@@ -10,6 +10,8 @@ import (
 func (h *Handler) UnsubscribeByToken(c *gin.Context) {
 	token := c.Param("token")
 
+	log.WithField("action", "unsubscribe").WithField("token", token).Info("user action")
+
 	if err := uuid.Validate(token); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token"})
 		return

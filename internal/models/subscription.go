@@ -11,5 +11,6 @@ type Subscription struct {
 
 type NotificationJob struct {
 	Email   string
+	Repo    string
 	Message string
 }
