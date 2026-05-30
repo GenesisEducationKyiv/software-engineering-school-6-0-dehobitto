@@ -20,6 +20,9 @@ type Config struct {
 	RedisAddr    string
 	APIKey       string
 	BaseURL      string
+	LogLevel     string
+	LogFile      string
+	RabbitMQURL  string
 }
 
 func LoadConfig() *Config {
@@ -38,6 +41,9 @@ func LoadConfig() *Config {
 		RedisAddr:    getEnv("REDIS_ADDR", "redis:6379"),
 		APIKey:       getEnv("API_KEY", ""),
 		BaseURL:      getEnv("BASE_URL", "http://localhost:8080"),
+		LogLevel:     getEnv("LOG_LEVEL", "info"),
+		LogFile:      getEnv("LOG_FILE", ""),
+		RabbitMQURL:  getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/"),
 	}
 }
 

@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // unsetKeys unsets each key for the duration of the test and restores originals via t.Cleanup.
@@ -70,4 +72,21 @@ func TestLoadConfig_FromEnv(t *testing.T) {
 	if cfg.APIKey != "my-secret" {
 		t.Errorf("APIKey = %q, want my-secret", cfg.APIKey)
 	}
+}
+
+func TestLoadConfig_LogLevel(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "debug")
+	cfg := LoadConfig()
+	assert.Equal(t, "debug", cfg.LogLevel)
+}
+
+func TestLoadConfig_LogFile_DefaultEmpty(t *testing.T) {
+	cfg := LoadConfig()
+	assert.Equal(t, "", cfg.LogFile)
+}
+
+func TestLoadConfig_RabbitMQURL(t *testing.T) {
+	t.Setenv("RABBITMQ_URL", "amqp://user:pass@localhost:5672/")
+	cfg := LoadConfig()
+	assert.Equal(t, "amqp://user:pass@localhost:5672/", cfg.RabbitMQURL)
 }
