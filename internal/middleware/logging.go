@@ -3,8 +3,9 @@ package middleware
 import (
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"subber/internal/logger"
+
+	"github.com/gin-gonic/gin"
 )
 
 var httpLog = logger.New().WithField("component", "http")
