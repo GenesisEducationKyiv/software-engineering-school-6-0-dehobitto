@@ -4,19 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 
 	"subber/internal/config"
 	gh "subber/internal/github"
 	"subber/internal/infra/cache"
 	"subber/internal/infra/database"
+	applogger "subber/internal/logger"
 	"subber/internal/models"
 	"subber/internal/routes"
 	"subber/internal/service"
@@ -25,7 +27,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatalf("App error: %v", err)
+		logrus.WithError(err).Fatal("app error")
 	}
 }
 
@@ -35,6 +37,12 @@ func run() error {
 	if cfg.BaseURL == "" {
 		return fmt.Errorf("BASE_URL environment variable is required")
 	}
+
+	cleanupLogger, err := setupLogger(cfg)
+	if err != nil {
+		return fmt.Errorf("logger setup failed: %w", err)
+	}
+	defer cleanupLogger()
 
 	connectionPool, err := database.Connect(cfg)
 	if err != nil {
@@ -82,7 +90,6 @@ func run() error {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("server error: %w", err)
 		}
-
 		return nil
 	})
 
@@ -106,6 +113,37 @@ func run() error {
 	log.Printf("Server started on :%s", cfg.ServerPort)
 
 	return group.Wait()
+}
+
+// setupLogger configures the global logrus instance and optionally adds the RabbitMQ hook.
+// The returned func must be deferred to close the AMQP connection on shutdown.
+func setupLogger(cfg *config.Config) (func(), error) {
+	logrus.SetFormatter(&logrus.JSONFormatter{})
+
+	level, err := logrus.ParseLevel(cfg.LogLevel)
+	if err != nil {
+		return func() {}, fmt.Errorf("invalid LOG_LEVEL %q: %w", cfg.LogLevel, err)
+	}
+	logrus.SetLevel(level)
+
+	if cfg.LogFile != "" {
+		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			return func() {}, fmt.Errorf("open log file: %w", err)
+		}
+		logrus.SetOutput(io.MultiWriter(os.Stdout, f))
+	}
+
+	if cfg.RabbitMQURL == "" {
+		return func() {}, nil
+	}
+
+	hook, cleanup, err := applogger.NewRabbitMQHook(cfg.RabbitMQURL)
+	if err != nil {
+		return func() {}, fmt.Errorf("rabbitmq hook: %w", err)
+	}
+	logrus.AddHook(hook)
+	return cleanup, nil
 }
 
 // withRecover wraps a function so that a panic is caught and returned as an error.
