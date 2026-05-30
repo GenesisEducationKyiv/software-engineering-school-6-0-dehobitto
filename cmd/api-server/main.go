@@ -116,7 +116,7 @@ func run() error {
 }
 
 // setupLogger configures the global logrus instance and optionally adds the RabbitMQ hook.
-// The returned func must be deferred to close the AMQP connection on shutdown.
+// The returned func must be deferred to close the AMQP connection and log file on shutdown.
 func setupLogger(cfg *config.Config) (func(), error) {
 	logrus.SetFormatter(&logrus.JSONFormatter{})
 
@@ -126,24 +126,37 @@ func setupLogger(cfg *config.Config) (func(), error) {
 	}
 	logrus.SetLevel(level)
 
+	var logFile *os.File
 	if cfg.LogFile != "" {
 		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
 			return func() {}, fmt.Errorf("open log file: %w", err)
 		}
 		logrus.SetOutput(io.MultiWriter(os.Stdout, f))
+		logFile = f
 	}
 
-	if cfg.RabbitMQURL == "" {
-		return func() {}, nil
+	var amqpCleanup func()
+	if cfg.RabbitMQURL != "" {
+		hook, cleanup, err := applogger.NewRabbitMQHook(cfg.RabbitMQURL)
+		if err != nil {
+			if logFile != nil {
+				_ = logFile.Close()
+			}
+			return func() {}, fmt.Errorf("rabbitmq hook: %w", err)
+		}
+		logrus.AddHook(hook)
+		amqpCleanup = cleanup
 	}
 
-	hook, cleanup, err := applogger.NewRabbitMQHook(cfg.RabbitMQURL)
-	if err != nil {
-		return func() {}, fmt.Errorf("rabbitmq hook: %w", err)
-	}
-	logrus.AddHook(hook)
-	return cleanup, nil
+	return func() {
+		if amqpCleanup != nil {
+			amqpCleanup()
+		}
+		if logFile != nil {
+			_ = logFile.Close()
+		}
+	}, nil
 }
 
 // withRecover wraps a function so that a panic is caught and returned as an error.
