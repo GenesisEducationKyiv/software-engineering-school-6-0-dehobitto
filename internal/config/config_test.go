@@ -81,6 +81,7 @@ func TestLoadConfig_LogLevel(t *testing.T) {
 }
 
 func TestLoadConfig_LogFile_DefaultEmpty(t *testing.T) {
+	t.Setenv("LOG_FILE", "")
 	cfg := LoadConfig()
 	assert.Equal(t, "", cfg.LogFile)
 }
