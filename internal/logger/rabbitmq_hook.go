@@ -20,39 +20,66 @@ type RabbitMQHook struct {
 	ch *amqp.Channel
 }
 
-// NewRabbitMQHook dials RabbitMQ, declares queue topology, and returns the hook.
-// The returned cleanup func closes the channel and connection — defer it in main.
-func NewRabbitMQHook(url string) (*RabbitMQHook, func(), error) {
+// dialAMQP dials the broker and opens a channel. The returned cleanup closes
+// both on shutdown; callers must invoke it on error paths too.
+func dialAMQP(url string) (*amqp.Connection, *amqp.Channel, func(), error) {
 	conn, err := amqp.Dial(url)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	ch, err := conn.Channel()
 	if err != nil {
-		conn.Close()
-		return nil, nil, err
+		if cerr := conn.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "close amqp connection: %v\n", cerr)
+		}
+		return nil, nil, nil, err
 	}
 
-	cleanup := func() { ch.Close(); conn.Close() }
-
-	if err = ch.ExchangeDeclare(dlxExchange, "direct", true, false, false, false, nil); err != nil {
-		cleanup()
-		return nil, nil, err
+	cleanup := func() {
+		if err := ch.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "close amqp channel: %v\n", err)
+		}
+		if err := conn.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "close amqp connection: %v\n", err)
+		}
 	}
 
-	if _, err = ch.QueueDeclare(deadQueue, true, false, false, false, nil); err != nil {
-		cleanup()
-		return nil, nil, err
+	return conn, ch, cleanup, nil
+}
+
+// declareTopology declares the DLX exchange, dead-letter queue, binding, and
+// main logs queue on the provided channel.
+func declareTopology(ch *amqp.Channel) error {
+	if err := ch.ExchangeDeclare(dlxExchange, "direct", true, false, false, false, nil); err != nil {
+		return err
 	}
 
-	if err = ch.QueueBind(deadQueue, logsQueue, dlxExchange, false, nil); err != nil {
-		cleanup()
-		return nil, nil, err
+	if _, err := ch.QueueDeclare(deadQueue, true, false, false, false, nil); err != nil {
+		return err
+	}
+
+	if err := ch.QueueBind(deadQueue, logsQueue, dlxExchange, false, nil); err != nil {
+		return err
 	}
 
 	args := amqp.Table{"x-dead-letter-exchange": dlxExchange}
-	if _, err = ch.QueueDeclare(logsQueue, true, false, false, false, args); err != nil {
+	if _, err := ch.QueueDeclare(logsQueue, true, false, false, false, args); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// NewRabbitMQHook connects to the broker, declares the queue topology, and
+// returns a ready hook plus a cleanup function to close the connection.
+func NewRabbitMQHook(url string) (*RabbitMQHook, func(), error) {
+	_, ch, cleanup, err := dialAMQP(url)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := declareTopology(ch); err != nil {
 		cleanup()
 		return nil, nil, err
 	}
