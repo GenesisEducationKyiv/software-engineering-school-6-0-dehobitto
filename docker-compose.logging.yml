@@ -1,3 +1,7 @@
+# Overlay file for the ELK logging stack. Always use together with the base compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.logging.yml up -d
+#
+# The 'subber' service defined here adds only 'depends_on: rabbitmq' to the base definition.
 services:
   rabbitmq:
     image: rabbitmq:3-management

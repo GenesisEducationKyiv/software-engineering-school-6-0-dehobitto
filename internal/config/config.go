@@ -43,7 +43,7 @@ func LoadConfig() *Config {
 		BaseURL:      getEnv("BASE_URL", "http://localhost:8080"),
 		LogLevel:     getEnv("LOG_LEVEL", "info"),
 		LogFile:      getEnv("LOG_FILE", ""),
-		RabbitMQURL:  getEnv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/"),
+		RabbitMQURL:  getEnv("RABBITMQ_URL", ""),
 	}
 }
 

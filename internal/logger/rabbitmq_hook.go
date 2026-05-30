@@ -1,6 +1,9 @@
 package logger
 
 import (
+	"fmt"
+	"os"
+
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
 )
@@ -64,9 +67,12 @@ func (h *RabbitMQHook) Fire(entry *logrus.Entry) error {
 	if err != nil {
 		return err
 	}
-	return h.ch.Publish("", logsQueue, false, false, amqp.Publishing{
+	if err = h.ch.Publish("", logsQueue, false, false, amqp.Publishing{
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
 		Body:         b,
-	})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "rabbitmq hook: publish failed: %v — original entry: %s\n", err, b)
+	}
+	return nil
 }

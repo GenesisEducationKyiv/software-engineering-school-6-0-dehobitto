@@ -91,3 +91,9 @@ func TestLoadConfig_RabbitMQURL(t *testing.T) {
 	cfg := LoadConfig()
 	assert.Equal(t, "amqp://user:pass@localhost:5672/", cfg.RabbitMQURL)
 }
+
+func TestLoadConfig_RabbitMQURL_DefaultEmpty(t *testing.T) {
+	t.Setenv("RABBITMQ_URL", "")
+	cfg := LoadConfig()
+	assert.Equal(t, "", cfg.RabbitMQURL)
+}
