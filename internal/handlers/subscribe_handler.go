@@ -24,7 +24,7 @@ func (h *Handler) Subscribe(c *gin.Context) {
 		return
 	}
 
-	log.WithField("action", "subscribe").WithField("email", input.Email).WithField("repo", input.Repo).Info("user action")
+	handlerLog.WithField("action", "subscribe").WithField("email", input.Email).WithField("repo", input.Repo).Info("user action")
 
 	err := h.svc.Subscribe(c.Request.Context(), input.Email, input.Repo)
 	if err == nil {
@@ -42,7 +42,7 @@ func (h *Handler) Subscribe(c *gin.Context) {
 	case errors.Is(err, service.ErrGitHubUnavailable):
 		c.JSON(http.StatusBadGateway, gin.H{"error": "External API error"})
 	default:
-		log.WithField("email", input.Email).WithField("repo", input.Repo).WithError(err).Error("subscribe failed")
+		handlerLog.WithField("email", input.Email).WithField("repo", input.Repo).WithError(err).Error("subscribe failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 	}
 }

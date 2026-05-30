@@ -9,7 +9,7 @@ import (
 )
 
 func (h *Handler) GetSubscriptions(c *gin.Context) {
-	log.WithField("action", "get_subscriptions").Info("user action")
+	handlerLog.WithField("action", "get_subscriptions").Info("user action")
 
 	email := c.Query("email")
 

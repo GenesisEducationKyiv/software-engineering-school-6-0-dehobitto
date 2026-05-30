@@ -12,7 +12,7 @@ import (
 	"subber/internal/logger"
 )
 
-var log = logger.New().WithField("component", "database")
+var dbLog = logger.New().WithField("component", "database")
 
 //go:embed schemas.sql
 var schemaFS embed.FS
@@ -29,7 +29,7 @@ func Connect(cfg *config.Config) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 
-	log.Info("database connection established")
+	dbLog.Info("database connection established")
 	return pool, nil
 }
 
@@ -44,7 +44,7 @@ func Migrate(pool *pgxpool.Pool) error {
 		return fmt.Errorf("apply schema: %w", err)
 	}
 
-	log.Info("migrations applied successfully")
+	dbLog.Info("migrations applied successfully")
 	return nil
 }
 

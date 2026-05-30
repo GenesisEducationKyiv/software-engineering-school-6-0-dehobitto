@@ -11,7 +11,7 @@ import (
 	"subber/internal/models"
 )
 
-var log = logger.New().WithField("component", "service")
+var svcLog = logger.New().WithField("component", "service")
 
 type SubscriptionRepository interface {
 	SubscriptionExists(ctx context.Context, email, repo string) (bool, error)
@@ -64,7 +64,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 
 	tag, err := s.github.GetLatestTag(ctx, repo)
 	if err != nil {
-		log.WithField("repo", repo).WithError(err).Warn("could not fetch initial tag")
+		svcLog.WithField("repo", repo).WithError(err).Warn("could not fetch initial tag")
 	}
 
 	sub := models.Subscription{
@@ -106,8 +106,8 @@ func (s *SubscriptionService) enqueueConfirmation(email, repo, token string) {
 
 	select {
 	case s.jobs <- models.NotificationJob{Email: email, Repo: repo, Message: message}:
-		log.WithField("email", email).Info("confirmation job queued")
+		svcLog.WithField("email", email).WithField("repo", repo).Info("confirmation job queued")
 	default:
-		log.WithField("email", email).Error("notification channel full, dropping confirmation")
+		svcLog.WithField("email", email).Error("notification channel full, dropping confirmation")
 	}
 }

@@ -12,7 +12,7 @@ import (
 	"subber/internal/models"
 )
 
-var log = logger.New().WithField("component", "github")
+var ghLog = logger.New().WithField("component", "github")
 
 const (
 	defaultBaseURL = "https://api.github.com"
@@ -42,7 +42,7 @@ func (c *Client) GetLatestTag(ctx context.Context, repo string) (string, error) 
 	if c.cache != nil {
 		cached, err := c.cache.Get(ctx, cacheKey)
 		if err != nil {
-			log.WithField("repo", repo).WithError(err).Warn("cache get failed")
+			ghLog.WithField("repo", repo).WithError(err).Warn("cache get failed")
 		}
 		if cached != "" {
 			return cached, nil
@@ -64,22 +64,22 @@ func (c *Client) GetLatestTag(ctx context.Context, repo string) (string, error) 
 	resp, err := c.httpClient.Do(req)
 	duration := time.Since(start).Milliseconds()
 	if err != nil {
-		log.WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "unavailable").WithError(err).Error("github api call failed")
+		ghLog.WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "unavailable").WithError(err).Error("github api call failed")
 		return "", err
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
 	switch resp.StatusCode {
 	case http.StatusNotFound:
-		log.WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "ok").Info("github api call")
+		ghLog.WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "not_found").Info("github api call")
 		return "", nil
 	case http.StatusTooManyRequests:
-		log.WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "rate_limited").Warn("github api rate limited")
+		ghLog.WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "rate_limited").Warn("github api rate limited")
 		return "", fmt.Errorf("github rate limit exceeded (429)")
 	case http.StatusOK:
-		log.WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "ok").Info("github api call")
+		ghLog.WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "ok").Info("github api call")
 	default:
-		log.WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "unavailable").WithField("http_code", resp.StatusCode).Error("github api unexpected status")
+		ghLog.WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "unavailable").WithField("http_code", resp.StatusCode).Error("github api unexpected status")
 		return "", fmt.Errorf("github error: %d", resp.StatusCode)
 	}
 
@@ -90,7 +90,7 @@ func (c *Client) GetLatestTag(ctx context.Context, repo string) (string, error) 
 
 	if c.cache != nil && release.LastSeenTag != "" {
 		if err := c.cache.Set(ctx, cacheKey, release.LastSeenTag, 45*time.Second); err != nil {
-			log.WithField("repo", repo).WithError(err).Warn("failed to cache tag")
+			ghLog.WithField("repo", repo).WithError(err).Warn("failed to cache tag")
 		}
 	}
 
