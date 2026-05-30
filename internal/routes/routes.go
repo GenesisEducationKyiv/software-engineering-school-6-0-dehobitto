@@ -15,6 +15,7 @@ func SetupRouter(repo handlers.SubscriptionRepository, svc handlers.Subscription
 	r.SetTrustedProxies(nil) //nolint:gosec // nil input cannot produce a parse error
 
 	r.Use(middleware.PrometheusMiddleware())
+	r.Use(middleware.LoggingMiddleware())
 
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
