@@ -79,7 +79,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 		return fmt.Errorf("save subscription: %w", err)
 	}
 
-	s.enqueueConfirmation(sub.Email, sub.Token)
+	s.enqueueConfirmation(sub.Email, sub.Repo, sub.Token)
 	return nil
 }
 
@@ -97,7 +97,7 @@ func (s *SubscriptionService) validateRepoOnGitHub(ctx context.Context, repo str
 	}
 }
 
-func (s *SubscriptionService) enqueueConfirmation(email, token string) {
+func (s *SubscriptionService) enqueueConfirmation(email, repo, token string) {
 	confirmURL := fmt.Sprintf("%s/api/confirm/%s", s.baseURL, token)
 	message := fmt.Sprintf(
 		"Welcome! Please confirm your subscription to GitHub repository updates by clicking here: %s",
@@ -105,7 +105,7 @@ func (s *SubscriptionService) enqueueConfirmation(email, token string) {
 	)
 
 	select {
-	case s.jobs <- models.NotificationJob{Email: email, Message: message}:
+	case s.jobs <- models.NotificationJob{Email: email, Repo: repo, Message: message}:
 		log.WithField("email", email).Info("confirmation job queued")
 	default:
 		log.WithField("email", email).Error("notification channel full, dropping confirmation")

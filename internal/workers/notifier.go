@@ -9,7 +9,7 @@ import (
 	"subber/internal/models"
 )
 
-var log = logger.New().WithField("component", "workers")
+var notifyLog = logger.New().WithField("component", "notifier")
 
 type NotifierWorker struct {
 	sender EmailSender
@@ -20,7 +20,7 @@ func NewNotifierWorker(sender EmailSender) *NotifierWorker {
 }
 
 func (n *NotifierWorker) Start(ctx context.Context, jobs <-chan models.NotificationJob) error {
-	log.Info("notifier worker started")
+	notifyLog.Info("notifier worker started")
 
 	for {
 		select {
@@ -31,11 +31,11 @@ func (n *NotifierWorker) Start(ctx context.Context, jobs <-chan models.Notificat
 				return nil
 			}
 			if err := n.sender.Send(job.Email, job.Message); err != nil {
-				log.WithField("email", job.Email).WithField("repo", job.Repo).WithError(err).Error("failed to send email")
+				notifyLog.WithField("email", job.Email).WithField("repo", job.Repo).WithError(err).Error("failed to send email")
 				metrics.EmailsFailedTotal.Inc()
 				continue
 			}
-			log.WithField("email", job.Email).WithField("repo", job.Repo).Info("email sent")
+			notifyLog.WithField("email", job.Email).WithField("repo", job.Repo).Info("email sent")
 			metrics.EmailsSentTotal.Inc()
 		}
 	}
