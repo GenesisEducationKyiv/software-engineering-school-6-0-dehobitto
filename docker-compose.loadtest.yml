@@ -1,0 +1,15 @@
+# Load test runner. Always use together with the base compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml run --rm k6
+#
+# k6 connects to 'subber' service directly via the shared Docker network.
+services:
+  k6:
+    image: grafana/k6:latest
+    command: run /scripts/loadtest.js
+    volumes:
+      - ./scripts:/scripts:ro
+    environment:
+      - BASE_URL=http://subber:8080
+      - API_KEY=${API_KEY:-}
+    depends_on:
+      - subber

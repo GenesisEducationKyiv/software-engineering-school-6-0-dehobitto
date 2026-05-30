@@ -154,7 +154,9 @@ func setupLogger(cfg *config.Config) (func(), error) {
 			amqpCleanup()
 		}
 		if logFile != nil {
-			_ = logFile.Close()
+			if err := logFile.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "close log file: %v\n", err)
+			}
 		}
 	}, nil
 }

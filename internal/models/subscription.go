@@ -8,9 +8,3 @@ type Subscription struct {
 	LastSeenTag string `json:"last_seen_tag"` // Last seen release tag for "Repo"
 	Token       string `json:"-"`
 }
-
-type NotificationJob struct {
-	Email   string
-	Repo    string
-	Message string
-}

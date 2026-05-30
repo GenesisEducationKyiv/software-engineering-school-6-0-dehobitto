@@ -9,14 +9,14 @@ import (
 )
 
 func (h *Handler) GetSubscriptions(c *gin.Context) {
-	handlerLog.WithField("action", "get_subscriptions").Info("user action")
-
 	email := c.Query("email")
 
 	if email == "" || !validators.IsValidEmail(email) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid email"})
 		return
 	}
+
+	handlerLog.WithField("action", "get_subscriptions").Info("user action")
 
 	subscriptions, err := h.repo.GetSubscriptions(c.Request.Context(), email)
 	if err != nil {

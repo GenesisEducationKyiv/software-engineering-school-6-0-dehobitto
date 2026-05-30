@@ -30,7 +30,6 @@ func (r *Repository) SaveSubscription(ctx context.Context, sub models2.Subscript
 		return fmt.Errorf("save subscription: %w", err)
 	}
 
-	dbLog.WithField("email", sub.Email).WithField("repo", sub.Repo).Info("subscription saved")
 	return nil
 }
 
