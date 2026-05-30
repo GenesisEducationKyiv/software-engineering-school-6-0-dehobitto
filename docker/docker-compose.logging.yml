@@ -1,10 +1,10 @@
 # Overlay file for the ELK logging stack. Always use together with the base compose file:
-#   docker compose -f docker-compose.yml -f docker-compose.logging.yml up -d
+#   docker compose -f docker-compose.yml -f docker/docker-compose.logging.yml up -d
 #
 # The 'subber' service defined here adds only 'depends_on: rabbitmq' to the base definition.
 services:
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:4.3.1-management-alpine
     container_name: subber_rabbitmq
     ports:
       - "5672:5672"
@@ -17,7 +17,7 @@ services:
     restart: unless-stopped
 
   elasticsearch:
-    image: elasticsearch:8.13.0
+    image: elasticsearch:9.4.2
     container_name: subber_elasticsearch
     environment:
       - discovery.type=single-node
@@ -33,10 +33,10 @@ services:
     restart: unless-stopped
 
   logstash:
-    image: logstash:8.13.0
+    image: logstash:9.4.2
     container_name: subber_logstash
     volumes:
-      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./docker/logstash/pipeline:/usr/share/logstash/pipeline:ro
     environment:
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_USER=guest
@@ -51,12 +51,14 @@ services:
     restart: unless-stopped
 
   kibana:
-    image: kibana:8.13.0
+    image: kibana:9.4.2
     container_name: subber_kibana
     ports:
       - "5601:5601"
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false
+      - xpack.fleet.enabled=false
     depends_on:
       elasticsearch:
         condition: service_healthy

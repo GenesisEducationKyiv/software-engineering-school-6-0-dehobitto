@@ -1,5 +1,5 @@
 # Load test runner. Always use together with the base compose file:
-#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml run --rm k6
+#   docker compose -f docker-compose.yml -f docker/docker-compose.loadtest.yml run --rm k6
 #
 # k6 connects to 'subber' service directly via the shared Docker network.
 services:

@@ -2,6 +2,51 @@
 
 A service that watches GitHub repositories for new releases and notifies subscribers by email.
 
+## Local endpoints
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| App | http://localhost:8080 | Main application |
+| Swagger / UI | http://localhost:8080/static/index.html | Web UI |
+| Prometheus metrics | http://localhost:8080/metrics | Raw metrics |
+| Kibana | http://localhost:5601 | Log dashboards |
+| Elasticsearch | http://localhost:9200 | Search engine (raw API) |
+| RabbitMQ management | http://localhost:15672 | Queue dashboard (guest / guest) |
+
+## How to run
+
+**1. Setup**
+```bash
+cp .env.example .env
+# fill in: GITHUB_TOKEN, API_KEY, SMTP_EMAIL, SMTP_PASSWORD
+```
+
+**2. Run app only**
+```bash
+docker compose up --build -d
+```
+
+**3. Run app + logging stack (RabbitMQ → Logstash → Elasticsearch → Kibana)**
+```bash
+docker compose -f docker-compose.yml -f docker/docker-compose.logging.yml up --build -d
+```
+
+**4. Run app + logging + load test**
+```bash
+# start app and logging stack first
+docker compose -f docker-compose.yml -f docker/docker-compose.logging.yml up --build -d
+
+# then run k6 (exits automatically when done)
+docker compose -f docker-compose.yml -f docker/docker-compose.loadtest.yml run --rm k6
+```
+
+**Stop everything**
+```bash
+docker compose -f docker-compose.yml -f docker/docker-compose.logging.yml down
+```
+
+---
+
 ## How it works
 
 When a user subscribes to a repository, Subber saves the subscription as unconfirmed and sends a confirmation email. Once confirmed, a background scanner polls GitHub every 30 seconds for new release tags. When a new tag is detected, the notifier worker sends an email to every confirmed subscriber of that repository.
