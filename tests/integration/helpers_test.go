@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,11 +17,11 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"subber/internal/config"
-	"subber/internal/infra/cache"
+	gh "subber/internal/github"
 	"subber/internal/infra/database"
+	"subber/internal/models"
 	"subber/internal/routes"
 	"subber/internal/service"
-	"subber/internal/workers"
 )
 
 var sharedPool *pgxpool.Pool
@@ -68,7 +69,7 @@ type testEnv struct {
 	pool   *pgxpool.Pool
 }
 
-func newTestEnv(t *testing.T, gh gitHubFake) *testEnv {
+func newTestEnv(t *testing.T, fake gitHubFake) *testEnv {
 	t.Helper()
 
 	_, err := sharedPool.Exec(context.Background(), "TRUNCATE TABLE subscriptions")
@@ -78,9 +79,9 @@ func newTestEnv(t *testing.T, gh gitHubFake) *testEnv {
 
 	dbRepo := database.NewRepository(sharedPool)
 	cfg := &config.Config{BaseURL: "http://localhost", APIKey: "test-key"}
-	jobs := make(chan workers.NotificationJob, 100)
+	jobs := make(chan models.NotificationJob, 100)
 
-	svc := service.NewSubscriptionService(dbRepo, cfg, jobs, nil, gh, service.RealUUIDGenerator)
+	svc := service.NewSubscriptionService(dbRepo, cfg.BaseURL, jobs, fake, service.RealUUIDGenerator)
 
 	gin.SetMode(gin.TestMode)
 	router := routes.SetupRouter(dbRepo, svc, cfg)
@@ -168,15 +169,22 @@ func (e *testEnv) getSubscriptions(t *testing.T, email, apiKey string) *httptest
 	return w
 }
 
-// gitHubFake satisfies the unexported service.gitHubClient interface.
+// gitHubFake satisfies the service.GitHubClient interface.
 type gitHubFake struct{ repoStatus int }
 
-func (g gitHubFake) CheckIfRepoExists(_ context.Context, _, _ string) (*http.Response, error) {
-	rec := httptest.NewRecorder()
-	rec.WriteHeader(g.repoStatus)
-	return rec.Result(), nil
+func (g gitHubFake) CheckIfRepoExists(_ context.Context, _ string) error {
+	switch g.repoStatus {
+	case http.StatusOK:
+		return nil
+	case http.StatusNotFound:
+		return gh.ErrNotFound
+	case http.StatusTooManyRequests:
+		return gh.ErrRateLimit
+	default:
+		return fmt.Errorf("github error: %d", g.repoStatus)
+	}
 }
 
-func (gitHubFake) GetLatestTag(_ context.Context, _, _ string, _ cache.Cache) (string, error) {
+func (gitHubFake) GetLatestTag(_ context.Context, _ string) (string, error) {
 	return "", nil
 }

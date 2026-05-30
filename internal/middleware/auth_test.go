@@ -8,62 +8,39 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func setupTestRouter(apiKey string) *gin.Engine {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.Use(APIKeyAuth(apiKey))
-	r.GET("/test", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-	return r
-}
-
-func TestAPIKeyAuth_NoKeyConfigured(t *testing.T) {
-	r := setupTestRouter("")
-
-	req := httptest.NewRequest("GET", "/test", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 when no API key configured, got %d", w.Code)
+func TestAPIKeyAuth(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured string
+		sent       string
+		want       int
+	}{
+		// empty configured key disables auth entirely
+		{"no key configured", "", "", http.StatusOK},
+		// correct key → allowed
+		{"valid key", "secret", "secret", http.StatusOK},
+		// wrong key → rejected
+		{"wrong key", "secret", "wrong", http.StatusUnauthorized},
+		// key required but header absent → rejected
+		{"missing key", "secret", "", http.StatusUnauthorized},
 	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			r := gin.New()
+			r.Use(APIKeyAuth(tt.configured))
+			r.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
 
-func TestAPIKeyAuth_ValidKey(t *testing.T) {
-	r := setupTestRouter("secret-key")
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			if tt.sent != "" {
+				req.Header.Set("X-API-Key", tt.sent)
+			}
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
 
-	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("X-API-Key", "secret-key")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 with valid key, got %d", w.Code)
-	}
-}
-
-func TestAPIKeyAuth_InvalidKey(t *testing.T) {
-	r := setupTestRouter("secret-key")
-
-	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("X-API-Key", "wrong-key")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 with wrong key, got %d", w.Code)
-	}
-}
-
-func TestAPIKeyAuth_MissingKey(t *testing.T) {
-	r := setupTestRouter("secret-key")
-
-	req := httptest.NewRequest("GET", "/test", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 with missing key, got %d", w.Code)
+			if w.Code != tt.want {
+				t.Errorf("status = %d, want %d", w.Code, tt.want)
+			}
+		})
 	}
 }

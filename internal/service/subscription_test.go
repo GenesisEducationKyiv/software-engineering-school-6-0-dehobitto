@@ -3,125 +3,77 @@ package service
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"subber/internal/config"
-	"subber/internal/infra/cache"
+	gh "subber/internal/github"
 	"subber/internal/models"
-	"subber/internal/workers"
 )
 
+// --- test doubles ---
+
 type fakeRepo struct {
-	saved  models.Subscription
-	exists bool
+	saved     models.Subscription
+	exists    bool
+	existsErr error
+	saveErr   error
 }
 
 func (f *fakeRepo) SubscriptionExists(_ context.Context, _, _ string) (bool, error) {
-	return f.exists, nil
+	return f.exists, f.existsErr
 }
-
 func (f *fakeRepo) SaveSubscription(_ context.Context, sub models.Subscription) error {
 	f.saved = sub
-	return nil
+	return f.saveErr
 }
 
-// fakeGitHub returns configurable status for repo check.
-type fakeGitHub struct{ status int }
+type fakeGitHub struct{ checkErr error }
 
-func (f fakeGitHub) CheckIfRepoExists(_ context.Context, _, _ string) (*http.Response, error) {
-	rec := httptest.NewRecorder()
-	rec.WriteHeader(f.status)
-	return rec.Result(), nil
-}
-
-func (fakeGitHub) GetLatestTag(_ context.Context, _, _ string, _ cache.Cache) (string, error) {
-	return "", nil
-}
-
-func okGitHub() fakeGitHub        { return fakeGitHub{status: http.StatusOK} }
-func noRepoGitHub() fakeGitHub    { return fakeGitHub{status: http.StatusNotFound} }
-func rateLimitGitHub() fakeGitHub { return fakeGitHub{status: http.StatusTooManyRequests} }
-
-// errorGitHub simulates a network failure on repo check.
-type errorGitHub struct{}
-
-func (errorGitHub) CheckIfRepoExists(_ context.Context, _, _ string) (*http.Response, error) {
-	return nil, errors.New("connection refused")
-}
-
-func (errorGitHub) GetLatestTag(_ context.Context, _, _ string, _ cache.Cache) (string, error) {
-	return "", nil
-}
+func (f fakeGitHub) CheckIfRepoExists(_ context.Context, _ string) error    { return f.checkErr }
+func (fakeGitHub) GetLatestTag(_ context.Context, _ string) (string, error) { return "", nil }
 
 type fixedUUIDGen struct{ token string }
 
 func (g fixedUUIDGen) New() string { return g.token }
 
-func TestSubscribe_EnqueuesConfirmationEmail(t *testing.T) {
-	jobs := make(chan workers.NotificationJob, 1)
-	cfg := &config.Config{BaseURL: "http://localhost"}
-	svc := NewSubscriptionService(&fakeRepo{}, cfg, jobs, nil, okGitHub(), fixedUUIDGen{token: "tok"})
+func newTestService(repo SubscriptionRepository, g GitHubClient) *SubscriptionService {
+	jobs := make(chan models.NotificationJob, 1)
+	return NewSubscriptionService(repo, "http://localhost", jobs, g, fixedUUIDGen{token: "test-token"})
+}
 
-	err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo")
-	if err != nil {
+// --- tests ---
+
+func TestSubscribe_HappyPath(t *testing.T) {
+	const token = "fixed-token"
+	repo := &fakeRepo{}
+	jobs := make(chan models.NotificationJob, 1)
+	svc := NewSubscriptionService(repo, "http://localhost", jobs, fakeGitHub{}, fixedUUIDGen{token: token})
+
+	if err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	// token from UUID generator must be persisted
+	if repo.saved.Token != token {
+		t.Errorf("saved token = %q, want %q", repo.saved.Token, token)
+	}
+
+	// confirmation job must be enqueued with correct email and token in message
 	select {
 	case job := <-jobs:
 		if job.Email != "user@example.com" {
 			t.Errorf("job.Email = %q, want user@example.com", job.Email)
 		}
-		if !strings.Contains(job.Message, "tok") {
+		if !strings.Contains(job.Message, token) {
 			t.Errorf("confirmation message missing token: %q", job.Message)
 		}
 	default:
-		t.Fatal("no job enqueued")
+		t.Fatal("no confirmation job enqueued")
 	}
-}
-
-func TestSubscribe_ReturnsErrGitHubUnavailable_WhenNetworkFails(t *testing.T) {
-	svc := newTestService(&fakeRepo{}, errorGitHub{}, fixedUUIDGen{token: "x"})
-
-	err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo")
-
-	if !errors.Is(err, ErrGitHubUnavailable) {
-		t.Errorf("err = %v, want ErrGitHubUnavailable", err)
-	}
-}
-
-func TestSubscribe_ReturnsErrGitHubRateLimit_WhenGitHubReturns429(t *testing.T) {
-	svc := newTestService(&fakeRepo{}, rateLimitGitHub(), fixedUUIDGen{token: "x"})
-
-	err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo")
-
-	if !errors.Is(err, ErrGitHubRateLimit) {
-		t.Errorf("err = %v, want ErrGitHubRateLimit", err)
-	}
-}
-
-func TestSubscribe_ReturnsErrRepoNotFound_WhenGitHubReturns404(t *testing.T) {
-	svc := newTestService(&fakeRepo{}, noRepoGitHub(), fixedUUIDGen{token: "x"})
-
-	err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo")
-
-	if !errors.Is(err, ErrRepoNotFound) {
-		t.Errorf("err = %v, want ErrRepoNotFound", err)
-	}
-}
-
-func newTestService(repo SubscriptionRepository, gh gitHubClient, gen UUIDGenerator) *SubscriptionService {
-	jobs := make(chan workers.NotificationJob, 1)
-	cfg := &config.Config{BaseURL: "http://localhost"}
-	return NewSubscriptionService(repo, cfg, jobs, nil, gh, gen)
 }
 
 func TestSubscribe_ReturnsErrAlreadySubscribed_WhenDuplicate(t *testing.T) {
-	repo := &fakeRepo{exists: true}
-	svc := newTestService(repo, okGitHub(), fixedUUIDGen{token: "x"})
+	svc := newTestService(&fakeRepo{exists: true}, fakeGitHub{})
 
 	err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo")
 
@@ -130,18 +82,44 @@ func TestSubscribe_ReturnsErrAlreadySubscribed_WhenDuplicate(t *testing.T) {
 	}
 }
 
-func TestSubscribe_TokenComesfromUUIDGenerator(t *testing.T) {
-	const wantToken = "fixed-test-token"
-
-	repo := &fakeRepo{}
-	svc := newTestService(repo, okGitHub(), fixedUUIDGen{token: wantToken})
-
-	err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestSubscribe_RepoErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		existsErr error
+		saveErr   error
+	}{
+		{"exists check fails", errors.New("db timeout"), nil},
+		{"save fails", nil, errors.New("db timeout")},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &fakeRepo{existsErr: tt.existsErr, saveErr: tt.saveErr}
+			svc := newTestService(repo, fakeGitHub{})
+			err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo")
+			if err == nil {
+				t.Error("want error, got nil")
+			}
+		})
+	}
+}
 
-	if repo.saved.Token != wantToken {
-		t.Errorf("token = %q, want %q", repo.saved.Token, wantToken)
+func TestSubscribe_GitHubErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		ghErr   error
+		wantErr error
+	}{
+		{"network failure → ErrGitHubUnavailable", errors.New("connection refused"), ErrGitHubUnavailable},
+		{"rate limit → ErrGitHubRateLimit", gh.ErrRateLimit, ErrGitHubRateLimit},
+		{"repo not found → ErrRepoNotFound", gh.ErrNotFound, ErrRepoNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newTestService(&fakeRepo{}, fakeGitHub{checkErr: tt.ghErr})
+			err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo")
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("err = %v, want %v", err, tt.wantErr)
+			}
+		})
 	}
 }

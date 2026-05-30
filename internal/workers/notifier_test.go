@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"subber/internal/models"
 )
 
 type fakeSender struct {
@@ -18,8 +20,8 @@ func (f *fakeSender) Send(to, _ string) error {
 
 func TestNotifier_SendsEmail(t *testing.T) {
 	sender := &fakeSender{}
-	jobs := make(chan NotificationJob, 1)
-	jobs <- NotificationJob{Email: "user@example.com", Message: "hello"}
+	jobs := make(chan models.NotificationJob, 1)
+	jobs <- models.NotificationJob{Email: "user@example.com", Message: "hello"}
 	close(jobs)
 
 	err := NewNotifierWorker(sender).Start(context.Background(), jobs)
@@ -34,9 +36,9 @@ func TestNotifier_SendsEmail(t *testing.T) {
 
 func TestNotifier_ContinuesAfterSendFailure(t *testing.T) {
 	sender := &fakeSender{err: errors.New("smtp error")}
-	jobs := make(chan NotificationJob, 2)
-	jobs <- NotificationJob{Email: "a@example.com", Message: "msg"}
-	jobs <- NotificationJob{Email: "b@example.com", Message: "msg"}
+	jobs := make(chan models.NotificationJob, 2)
+	jobs <- models.NotificationJob{Email: "a@example.com", Message: "msg"}
+	jobs <- models.NotificationJob{Email: "b@example.com", Message: "msg"}
 	close(jobs)
 
 	err := NewNotifierWorker(sender).Start(context.Background(), jobs)
@@ -51,7 +53,7 @@ func TestNotifier_ContinuesAfterSendFailure(t *testing.T) {
 
 func TestNotifier_StopsOnContextCancel(t *testing.T) {
 	sender := &fakeSender{}
-	jobs := make(chan NotificationJob)
+	jobs := make(chan models.NotificationJob)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -60,5 +62,8 @@ func TestNotifier_StopsOnContextCancel(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sender.calls) != 0 {
+		t.Errorf("calls = %v, want none (cancelled context must not process jobs)", sender.calls)
 	}
 }

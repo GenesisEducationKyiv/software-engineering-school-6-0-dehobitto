@@ -4,32 +4,60 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+
+	"subber/internal/models"
 )
 
+// fakeHandlerRepo is a test double for SubscriptionRepository.
+type fakeHandlerRepo struct {
+	confirmErr error
+	unsubErr   error
+	subs       []models.Subscription
+	subsErr    error
+}
+
+func (f *fakeHandlerRepo) ConfirmSubscriptionByToken(_ context.Context, _ string) error {
+	return f.confirmErr
+}
+func (f *fakeHandlerRepo) Unsubscribe(_ context.Context, _ string) error { return f.unsubErr }
+func (f *fakeHandlerRepo) GetSubscriptions(_ context.Context, _ string) ([]models.Subscription, error) {
+	return f.subs, f.subsErr
+}
+
+// fakeSvc is a test double for SubscriptionService.
 type fakeSvc struct{ err error }
 
 func (f *fakeSvc) Subscribe(_ context.Context, _, _ string) error { return f.err }
 
-func newSubscribeRouter(svc subscriptionService) *gin.Engine {
+// newTestRouter wires all handler routes onto a test gin engine.
+func newTestRouter(repo SubscriptionRepository, svc SubscriptionService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/subscribe", (&Handler{svc: svc}).Subscribe)
+	h := NewHandler(repo, svc)
+	r.POST("/subscribe", h.Subscribe)
+	r.GET("/confirm/:token", h.ConfirmByToken)
+	r.GET("/unsubscribe/:token", h.UnsubscribeByToken)
+	r.GET("/subscriptions/", h.GetSubscriptions)
 	return r
 }
 
-func newTokenRouter(h *Handler) *gin.Engine {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.GET("/api/confirm/:token", h.ConfirmByToken)
-	r.GET("/api/unsubscribe/:token", h.UnsubscribeByToken)
-	return r
+// do executes a request against r and returns the response recorder.
+func do(r *gin.Engine, method, path string, body []byte) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, bytes.NewBuffer(body))
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
 }
 
-func subscribeBody(t *testing.T, email, repo string) *bytes.Buffer {
+func jsonBody(t *testing.T, v any) []byte {
 	t.Helper()
-	b, _ := json.Marshal(map[string]string{"email": email, "repo": repo})
-	return bytes.NewBuffer(b)
+	b, _ := json.Marshal(v)
+	return b
 }

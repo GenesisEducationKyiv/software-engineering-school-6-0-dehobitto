@@ -66,7 +66,7 @@ func run() error {
 		return scanner.StartScanner(ctx)
 	}))
 
-	svc := service.NewSubscriptionService(repo, cfg.BaseURL, jobsChannel, githubClient)
+	svc := service.NewSubscriptionService(repo, cfg.BaseURL, jobsChannel, githubClient, service.RealUUIDGenerator)
 
 	router := routes.SetupRouter(repo, svc, cfg)
 	srv := &http.Server{
