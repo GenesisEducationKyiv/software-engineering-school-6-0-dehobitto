@@ -14,9 +14,12 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"subber/internal/config"
+	gh "subber/internal/github"
 	"subber/internal/infra/cache"
 	"subber/internal/infra/database"
+	"subber/internal/models"
 	"subber/internal/routes"
+	"subber/internal/service"
 	"subber/internal/workers"
 )
 
@@ -49,24 +52,29 @@ func run() error {
 		return fmt.Errorf("connection to redis failed: %w", err)
 	}
 
-	jobsChannel := make(chan workers.NotificationJob, 100)
+	jobsChannel := make(chan models.NotificationJob, 100)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	group, groupCtx := errgroup.WithContext(ctx)
 
-	notifier := workers.NewNotifierWorker(cfg)
+	smtpSender := workers.NewSMTPSender(cfg)
+	notifier := workers.NewNotifierWorker(smtpSender)
 	group.Go(withRecover(func() error {
 		return notifier.Start(groupCtx, jobsChannel)
 	}))
 
-	scanner := workers.NewScannerWorker(repo, cfg, jobsChannel, redisCache)
+	githubClient := gh.NewClient(cfg.GitHubToken, redisCache)
+
+	scanner := workers.NewScannerWorker(repo, jobsChannel, githubClient)
 	group.Go(withRecover(func() error {
 		return scanner.StartScanner(groupCtx)
 	}))
 
-	router := routes.SetupRouter(repo, cfg, jobsChannel, redisCache)
+	svc := service.NewSubscriptionService(repo, cfg.BaseURL, jobsChannel, githubClient)
+
+	router := routes.SetupRouter(repo, svc, cfg)
 	srv := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
 		Handler:           router,

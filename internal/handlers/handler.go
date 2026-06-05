@@ -1,24 +1,29 @@
 package handlers
 
 import (
-	"subber/internal/config"
-	"subber/internal/infra/cache"
-	"subber/internal/infra/database"
-	"subber/internal/workers"
+	"context"
+
+	"subber/internal/models"
 )
 
-type Handler struct {
-	repo  *database.Repository
-	cfg   *config.Config
-	jobs  chan<- workers.NotificationJob
-	cache *cache.RedisCache
+type SubscriptionRepository interface {
+	ConfirmSubscriptionByToken(ctx context.Context, token string) error
+	Unsubscribe(ctx context.Context, token string) error
+	GetSubscriptions(ctx context.Context, email string) ([]models.Subscription, error)
 }
 
-func NewHandler(repo *database.Repository, cfg *config.Config, jobs chan<- workers.NotificationJob, rc *cache.RedisCache) *Handler {
+type SubscriptionService interface {
+	Subscribe(ctx context.Context, email, repo string) error
+}
+
+type Handler struct {
+	repo SubscriptionRepository
+	svc  SubscriptionService
+}
+
+func NewHandler(repo SubscriptionRepository, svc SubscriptionService) *Handler {
 	return &Handler{
-		repo:  repo,
-		cfg:   cfg,
-		jobs:  jobs,
-		cache: rc,
+		repo: repo,
+		svc:  svc,
 	}
 }
