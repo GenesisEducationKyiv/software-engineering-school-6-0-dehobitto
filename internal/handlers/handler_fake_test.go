@@ -11,31 +11,36 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
 
 	"subber/internal/models"
 	"subber/internal/service"
 )
 
-// fakeHandlerRepo is a test double for SubscriptionRepository.
-type fakeHandlerRepo struct {
-	confirmErr error
-	unsubErr   error
-	subs       []models.Subscription
-	subsErr    error
+type mockSubscriptionRepository struct {
+	mock.Mock
 }
 
-func (f *fakeHandlerRepo) ConfirmSubscriptionByToken(_ context.Context, _ string) error {
-	return f.confirmErr
-}
-func (f *fakeHandlerRepo) Unsubscribe(_ context.Context, _ string) error { return f.unsubErr }
-func (f *fakeHandlerRepo) GetSubscriptions(_ context.Context, _ string) ([]models.Subscription, error) {
-	return f.subs, f.subsErr
+func (m *mockSubscriptionRepository) ConfirmSubscriptionByToken(ctx context.Context, token string) error {
+	return m.Called(ctx, token).Error(0)
 }
 
-// fakeSvc is a test double for SubscriptionService.
-type fakeSvc struct{ err error }
+func (m *mockSubscriptionRepository) Unsubscribe(ctx context.Context, token string) error {
+	return m.Called(ctx, token).Error(0)
+}
 
-func (f *fakeSvc) Subscribe(_ context.Context, _, _ string) error { return f.err }
+func (m *mockSubscriptionRepository) GetSubscriptions(ctx context.Context, email string) ([]models.Subscription, error) {
+	args := m.Called(ctx, email)
+	return args.Get(0).([]models.Subscription), args.Error(1)
+}
+
+type mockSubscriptionService struct {
+	mock.Mock
+}
+
+func (m *mockSubscriptionService) Subscribe(ctx context.Context, email, repo string) error {
+	return m.Called(ctx, email, repo).Error(0)
+}
 
 func newRouter(repo SubscriptionRepository, svc SubscriptionService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
@@ -58,12 +63,15 @@ func subscribeBody(t *testing.T, email, repo string) *bytes.Buffer {
 
 func TestSubscribeHandler_AlreadySubscribed_Returns409(t *testing.T) {
 	// Duplicate subscription must return 409 Conflict, not 500, so clients can handle it gracefully.
-	r := newRouter(&fakeHandlerRepo{}, &fakeSvc{err: service.ErrAlreadySubscribed})
+	svc := new(mockSubscriptionService)
+	svc.On("Subscribe", mock.Anything, "a@b.com", "owner/repo").Return(service.ErrAlreadySubscribed).Once()
+	r := newRouter(new(mockSubscriptionRepository), svc)
 
 	req := httptest.NewRequest(http.MethodPost, "/subscribe", subscribeBody(t, "a@b.com", "owner/repo"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	svc.AssertExpectations(t)
 
 	if w.Code != http.StatusConflict {
 		t.Errorf("expected 409, got %d", w.Code)
@@ -71,12 +79,15 @@ func TestSubscribeHandler_AlreadySubscribed_Returns409(t *testing.T) {
 }
 
 func TestSubscribeHandler_RepoNotFound_Returns404(t *testing.T) {
-	r := newRouter(&fakeHandlerRepo{}, &fakeSvc{err: service.ErrRepoNotFound})
+	svc := new(mockSubscriptionService)
+	svc.On("Subscribe", mock.Anything, "a@b.com", "owner/repo").Return(service.ErrRepoNotFound).Once()
+	r := newRouter(new(mockSubscriptionRepository), svc)
 
 	req := httptest.NewRequest(http.MethodPost, "/subscribe", subscribeBody(t, "a@b.com", "owner/repo"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	svc.AssertExpectations(t)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
@@ -85,12 +96,15 @@ func TestSubscribeHandler_RepoNotFound_Returns404(t *testing.T) {
 
 func TestSubscribeHandler_RateLimit_Returns429(t *testing.T) {
 	// Rate limit must be explicit — 429 tells the client to back off, not retry immediately.
-	r := newRouter(&fakeHandlerRepo{}, &fakeSvc{err: service.ErrGitHubRateLimit})
+	svc := new(mockSubscriptionService)
+	svc.On("Subscribe", mock.Anything, "a@b.com", "owner/repo").Return(service.ErrGitHubRateLimit).Once()
+	r := newRouter(new(mockSubscriptionRepository), svc)
 
 	req := httptest.NewRequest(http.MethodPost, "/subscribe", subscribeBody(t, "a@b.com", "owner/repo"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	svc.AssertExpectations(t)
 
 	if w.Code != http.StatusTooManyRequests {
 		t.Errorf("expected 429, got %d", w.Code)
@@ -99,12 +113,15 @@ func TestSubscribeHandler_RateLimit_Returns429(t *testing.T) {
 
 func TestSubscribeHandler_GitHubUnavailable_Returns502(t *testing.T) {
 	// Upstream failures must be 502 Bad Gateway, not 500 — distinguishes our fault from GitHub's.
-	r := newRouter(&fakeHandlerRepo{}, &fakeSvc{err: service.ErrGitHubUnavailable})
+	svc := new(mockSubscriptionService)
+	svc.On("Subscribe", mock.Anything, "a@b.com", "owner/repo").Return(service.ErrGitHubUnavailable).Once()
+	r := newRouter(new(mockSubscriptionRepository), svc)
 
 	req := httptest.NewRequest(http.MethodPost, "/subscribe", subscribeBody(t, "a@b.com", "owner/repo"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	svc.AssertExpectations(t)
 
 	if w.Code != http.StatusBadGateway {
 		t.Errorf("expected 502, got %d", w.Code)
@@ -112,12 +129,15 @@ func TestSubscribeHandler_GitHubUnavailable_Returns502(t *testing.T) {
 }
 
 func TestSubscribeHandler_UnknownError_Returns500(t *testing.T) {
-	r := newRouter(&fakeHandlerRepo{}, &fakeSvc{err: errors.New("unexpected")})
+	svc := new(mockSubscriptionService)
+	svc.On("Subscribe", mock.Anything, "a@b.com", "owner/repo").Return(errors.New("unexpected")).Once()
+	r := newRouter(new(mockSubscriptionRepository), svc)
 
 	req := httptest.NewRequest(http.MethodPost, "/subscribe", subscribeBody(t, "a@b.com", "owner/repo"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	svc.AssertExpectations(t)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -125,12 +145,15 @@ func TestSubscribeHandler_UnknownError_Returns500(t *testing.T) {
 }
 
 func TestSubscribeHandler_Success_Returns200(t *testing.T) {
-	r := newRouter(&fakeHandlerRepo{}, &fakeSvc{})
+	svc := new(mockSubscriptionService)
+	svc.On("Subscribe", mock.Anything, "a@b.com", "owner/repo").Return(nil).Once()
+	r := newRouter(new(mockSubscriptionRepository), svc)
 
 	req := httptest.NewRequest(http.MethodPost, "/subscribe", subscribeBody(t, "a@b.com", "owner/repo"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	svc.AssertExpectations(t)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
@@ -140,12 +163,15 @@ func TestSubscribeHandler_Success_Returns200(t *testing.T) {
 // — ConfirmByToken handler —
 
 func TestConfirmByToken_Success_Returns200(t *testing.T) {
-	r := newRouter(&fakeHandlerRepo{}, &fakeSvc{})
 	token := uuid.New().String()
+	repo := new(mockSubscriptionRepository)
+	repo.On("ConfirmSubscriptionByToken", mock.Anything, token).Return(nil).Once()
+	r := newRouter(repo, new(mockSubscriptionService))
 
 	req := httptest.NewRequest(http.MethodGet, "/confirm/"+token, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	repo.AssertExpectations(t)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
@@ -154,12 +180,15 @@ func TestConfirmByToken_Success_Returns200(t *testing.T) {
 
 func TestConfirmByToken_UnknownToken_Returns404(t *testing.T) {
 	// Unknown token must return 404 so the user knows the link is stale or invalid.
-	r := newRouter(&fakeHandlerRepo{confirmErr: errors.New("not found")}, &fakeSvc{})
 	token := uuid.New().String()
+	repo := new(mockSubscriptionRepository)
+	repo.On("ConfirmSubscriptionByToken", mock.Anything, token).Return(errors.New("not found")).Once()
+	r := newRouter(repo, new(mockSubscriptionService))
 
 	req := httptest.NewRequest(http.MethodGet, "/confirm/"+token, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	repo.AssertExpectations(t)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
@@ -169,12 +198,15 @@ func TestConfirmByToken_UnknownToken_Returns404(t *testing.T) {
 // — UnsubscribeByToken handler —
 
 func TestUnsubscribeByToken_Success_Returns200(t *testing.T) {
-	r := newRouter(&fakeHandlerRepo{}, &fakeSvc{})
 	token := uuid.New().String()
+	repo := new(mockSubscriptionRepository)
+	repo.On("Unsubscribe", mock.Anything, token).Return(nil).Once()
+	r := newRouter(repo, new(mockSubscriptionService))
 
 	req := httptest.NewRequest(http.MethodGet, "/unsubscribe/"+token, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	repo.AssertExpectations(t)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
@@ -182,12 +214,15 @@ func TestUnsubscribeByToken_Success_Returns200(t *testing.T) {
 }
 
 func TestUnsubscribeByToken_UnknownToken_Returns404(t *testing.T) {
-	r := newRouter(&fakeHandlerRepo{unsubErr: errors.New("not found")}, &fakeSvc{})
 	token := uuid.New().String()
+	repo := new(mockSubscriptionRepository)
+	repo.On("Unsubscribe", mock.Anything, token).Return(errors.New("not found")).Once()
+	r := newRouter(repo, new(mockSubscriptionService))
 
 	req := httptest.NewRequest(http.MethodGet, "/unsubscribe/"+token, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	repo.AssertExpectations(t)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
@@ -200,11 +235,14 @@ func TestGetSubscriptions_ReturnsSubscriptionList(t *testing.T) {
 	subs := []models.Subscription{
 		{Email: "a@b.com", Repo: "owner/repo", Confirmed: true},
 	}
-	r := newRouter(&fakeHandlerRepo{subs: subs}, &fakeSvc{})
+	repo := new(mockSubscriptionRepository)
+	repo.On("GetSubscriptions", mock.Anything, "a@b.com").Return(subs, nil).Once()
+	r := newRouter(repo, new(mockSubscriptionService))
 
 	req := httptest.NewRequest(http.MethodGet, "/subscriptions/?email=a@b.com", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	repo.AssertExpectations(t)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
@@ -220,11 +258,16 @@ func TestGetSubscriptions_ReturnsSubscriptionList(t *testing.T) {
 }
 
 func TestGetSubscriptions_RepoError_Returns500(t *testing.T) {
-	r := newRouter(&fakeHandlerRepo{subsErr: errors.New("db error")}, &fakeSvc{})
+	repo := new(mockSubscriptionRepository)
+	repo.On("GetSubscriptions", mock.Anything, "a@b.com").
+		Return([]models.Subscription(nil), errors.New("db error")).
+		Once()
+	r := newRouter(repo, new(mockSubscriptionService))
 
 	req := httptest.NewRequest(http.MethodGet, "/subscriptions/?email=a@b.com", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+	repo.AssertExpectations(t)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
