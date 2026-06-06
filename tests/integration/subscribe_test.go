@@ -63,7 +63,10 @@ func TestSubscribe_RepoNotFound_Returns404(t *testing.T) {
 func TestSubscribe_WithoutAPIKey_ReturnsUnauthorized(t *testing.T) {
 	env := newTestEnv(t, gitHubFake{repoStatus: http.StatusOK})
 
-	body, _ := json.Marshal(map[string]string{"email": "user@example.com", "repo": "owner/repo"})
+	body, err := json.Marshal(map[string]string{"email": "user@example.com", "repo": "owner/repo"})
+	if err != nil {
+		t.Fatalf("encode json: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodPost, "/api/subscribe", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

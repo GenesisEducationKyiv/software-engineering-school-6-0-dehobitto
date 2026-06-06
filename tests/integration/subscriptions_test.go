@@ -26,7 +26,9 @@ func TestGetSubscriptions_ReturnsConfirmedOnly(t *testing.T) {
 	}
 
 	var subs []map[string]any
-	json.NewDecoder(w.Body).Decode(&subs)
+	if err := json.NewDecoder(w.Body).Decode(&subs); err != nil {
+		t.Fatalf("decode json: %v", err)
+	}
 	if len(subs) != 1 {
 		t.Errorf("subscriptions = %d, want 1 (only confirmed)", len(subs))
 	}
@@ -42,7 +44,9 @@ func TestGetSubscriptions_ReturnsEmptyList(t *testing.T) {
 	}
 
 	var subs []map[string]any
-	json.NewDecoder(w.Body).Decode(&subs)
+	if err := json.NewDecoder(w.Body).Decode(&subs); err != nil {
+		t.Fatalf("decode json: %v", err)
+	}
 	if len(subs) != 0 {
 		t.Errorf("subscriptions = %d, want 0", len(subs))
 	}

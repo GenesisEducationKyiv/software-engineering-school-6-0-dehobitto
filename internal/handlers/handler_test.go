@@ -68,6 +68,9 @@ func do(r *gin.Engine, method, path string, body []byte) *httptest.ResponseRecor
 
 func jsonBody(t *testing.T, v any) []byte {
 	t.Helper()
-	b, _ := json.Marshal(v)
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("encode json: %v", err)
+	}
 	return b
 }

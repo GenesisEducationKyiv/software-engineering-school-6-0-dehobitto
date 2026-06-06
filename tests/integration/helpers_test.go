@@ -133,7 +133,10 @@ func tokenForSubscription(t *testing.T, pool *pgxpool.Pool, email, repo string) 
 
 func (e *testEnv) subscribe(t *testing.T, email, repo string) *httptest.ResponseRecorder {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{"email": email, "repo": repo})
+	body, err := json.Marshal(map[string]string{"email": email, "repo": repo})
+	if err != nil {
+		t.Fatalf("encode json: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodPost, "/api/subscribe", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Key", "test-key")
