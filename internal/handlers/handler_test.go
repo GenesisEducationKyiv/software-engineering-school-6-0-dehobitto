@@ -29,9 +29,19 @@ func (f *fakeHandlerRepo) GetSubscriptions(_ context.Context, _ string) ([]model
 }
 
 // fakeSvc is a test double for SubscriptionService.
-type fakeSvc struct{ err error }
+type fakeSvc struct {
+	err      error
+	calls    int
+	gotEmail string
+	gotRepo  string
+}
 
-func (f *fakeSvc) Subscribe(_ context.Context, _, _ string) error { return f.err }
+func (f *fakeSvc) Subscribe(_ context.Context, email, repo string) error {
+	f.calls++
+	f.gotEmail = email
+	f.gotRepo = repo
+	return f.err
+}
 
 // newTestRouter wires all handler routes onto a test gin engine.
 func newTestRouter(repo SubscriptionRepository, svc SubscriptionService) *gin.Engine {
