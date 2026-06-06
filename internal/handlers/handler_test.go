@@ -2,46 +2,12 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-
-	"subber/internal/models"
 )
-
-// fakeHandlerRepo is a test double for SubscriptionRepository.
-type fakeHandlerRepo struct {
-	confirmErr error
-	unsubErr   error
-	subs       []models.Subscription
-	subsErr    error
-}
-
-func (f *fakeHandlerRepo) ConfirmSubscriptionByToken(_ context.Context, _ string) error {
-	return f.confirmErr
-}
-func (f *fakeHandlerRepo) Unsubscribe(_ context.Context, _ string) error { return f.unsubErr }
-func (f *fakeHandlerRepo) GetSubscriptions(_ context.Context, _ string) ([]models.Subscription, error) {
-	return f.subs, f.subsErr
-}
-
-// fakeSvc is a test double for SubscriptionService.
-type fakeSvc struct {
-	err      error
-	calls    int
-	gotEmail string
-	gotRepo  string
-}
-
-func (f *fakeSvc) Subscribe(_ context.Context, email, repo string) error {
-	f.calls++
-	f.gotEmail = email
-	f.gotRepo = repo
-	return f.err
-}
 
 // newTestRouter wires all handler routes onto a test gin engine.
 func newTestRouter(repo SubscriptionRepository, svc SubscriptionService) *gin.Engine {

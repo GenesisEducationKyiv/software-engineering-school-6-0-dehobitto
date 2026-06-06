@@ -8,7 +8,7 @@ import (
 )
 
 func TestUnsubscribe_Success(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{repoStatus: http.StatusOK})
+	env := newTestEnv(t, newGitHubMock(http.StatusOK))
 
 	w := env.subscribe(t, "user@example.com", "owner/repo")
 	if w.Code != http.StatusOK {
@@ -27,7 +27,7 @@ func TestUnsubscribe_Success(t *testing.T) {
 }
 
 func TestUnsubscribe_UnknownToken_Returns404(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{repoStatus: http.StatusOK})
+	env := newTestEnv(t, newGitHubMock(http.StatusOK))
 
 	w := env.unsubscribe(t, "00000000-0000-0000-0000-000000000000")
 

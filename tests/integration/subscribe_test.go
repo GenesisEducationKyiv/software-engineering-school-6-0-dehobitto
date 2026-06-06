@@ -12,7 +12,7 @@ import (
 )
 
 func TestSubscribe_Success(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{repoStatus: http.StatusOK})
+	env := newTestEnv(t, newGitHubMock(http.StatusOK))
 
 	w := env.subscribe(t, "user@example.com", "owner/repo")
 
@@ -28,7 +28,7 @@ func TestSubscribe_Success(t *testing.T) {
 }
 
 func TestSubscribe_Duplicate_ReturnsConflict(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{repoStatus: http.StatusOK})
+	env := newTestEnv(t, newGitHubMock(http.StatusOK))
 
 	env.subscribe(t, "user@example.com", "owner/repo")
 	w := env.subscribe(t, "user@example.com", "owner/repo")
@@ -38,17 +38,19 @@ func TestSubscribe_Duplicate_ReturnsConflict(t *testing.T) {
 	}
 
 	var count int
-	env.pool.QueryRow(context.Background(),
+	if err := env.pool.QueryRow(context.Background(),
 		"SELECT COUNT(*) FROM subscriptions WHERE email=$1 AND repo=$2",
 		"user@example.com", "owner/repo",
-	).Scan(&count)
+	).Scan(&count); err != nil {
+		t.Fatalf("count subscriptions: %v", err)
+	}
 	if count != 1 {
 		t.Errorf("rows in DB = %d, want 1", count)
 	}
 }
 
 func TestSubscribe_RepoNotFound_Returns404(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{repoStatus: http.StatusNotFound})
+	env := newTestEnv(t, newGitHubMock(http.StatusNotFound))
 
 	w := env.subscribe(t, "user@example.com", "owner/nonexistent")
 
@@ -61,7 +63,7 @@ func TestSubscribe_RepoNotFound_Returns404(t *testing.T) {
 }
 
 func TestSubscribe_WithoutAPIKey_ReturnsUnauthorized(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{repoStatus: http.StatusOK})
+	env := newTestEnv(t, newGitHubMock(http.StatusOK))
 
 	body, err := json.Marshal(map[string]string{"email": "user@example.com", "repo": "owner/repo"})
 	if err != nil {

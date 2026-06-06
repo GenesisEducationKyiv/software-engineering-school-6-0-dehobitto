@@ -14,10 +14,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/mock"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"subber/internal/config"
-	gh "subber/internal/github"
+	ghpkg "subber/internal/github"
 	"subber/internal/infra/database"
 	"subber/internal/models"
 	"subber/internal/routes"
@@ -69,7 +70,7 @@ type testEnv struct {
 	pool   *pgxpool.Pool
 }
 
-func newTestEnv(t *testing.T, fake gitHubFake) *testEnv {
+func newTestEnv(t *testing.T, gh service.GitHubClient) *testEnv {
 	t.Helper()
 
 	_, err := sharedPool.Exec(context.Background(), "TRUNCATE TABLE subscriptions")
@@ -81,7 +82,7 @@ func newTestEnv(t *testing.T, fake gitHubFake) *testEnv {
 	cfg := &config.Config{BaseURL: "http://localhost", APIKey: "test-key"}
 	jobs := make(chan models.NotificationJob, 100)
 
-	svc := service.NewSubscriptionService(dbRepo, cfg.BaseURL, jobs, fake, service.RealUUIDGenerator)
+	svc := service.NewSubscriptionService(dbRepo, cfg.BaseURL, jobs, gh, service.RealUUIDGenerator)
 
 	gin.SetMode(gin.TestMode)
 	router := routes.SetupRouter(dbRepo, svc, cfg)
@@ -172,22 +173,36 @@ func (e *testEnv) getSubscriptions(t *testing.T, email, apiKey string) *httptest
 	return w
 }
 
-// gitHubFake satisfies the service.GitHubClient interface.
-type gitHubFake struct{ repoStatus int }
-
-func (g gitHubFake) CheckIfRepoExists(_ context.Context, _ string) error {
-	switch g.repoStatus {
-	case http.StatusOK:
-		return nil
-	case http.StatusNotFound:
-		return gh.ErrNotFound
-	case http.StatusTooManyRequests:
-		return gh.ErrRateLimit
-	default:
-		return fmt.Errorf("github error: %d", g.repoStatus)
-	}
+type mockGitHubClient struct {
+	mock.Mock
 }
 
-func (gitHubFake) GetLatestTag(_ context.Context, _ string) (string, error) {
-	return "", nil
+func (m *mockGitHubClient) CheckIfRepoExists(ctx context.Context, repo string) error {
+	return m.Called(ctx, repo).Error(0)
+}
+
+func (m *mockGitHubClient) GetLatestTag(ctx context.Context, repo string) (string, error) {
+	args := m.Called(ctx, repo)
+	return args.String(0), args.Error(1)
+}
+
+func newGitHubMock(status int) *mockGitHubClient {
+	gh := new(mockGitHubClient)
+
+	var err error
+	switch status {
+	case http.StatusOK:
+		err = nil
+	case http.StatusNotFound:
+		err = ghpkg.ErrNotFound
+	case http.StatusTooManyRequests:
+		err = ghpkg.ErrRateLimit
+	default:
+		err = fmt.Errorf("github error: %d", status)
+	}
+
+	gh.On("CheckIfRepoExists", mock.Anything, mock.Anything).Return(err)
+	gh.On("GetLatestTag", mock.Anything, mock.Anything).Return("", nil)
+
+	return gh
 }

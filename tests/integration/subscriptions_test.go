@@ -9,7 +9,7 @@ import (
 )
 
 func TestGetSubscriptions_ReturnsConfirmedOnly(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{repoStatus: http.StatusOK})
+	env := newTestEnv(t, newGitHubMock(http.StatusOK))
 
 	// subscribe and confirm first repo
 	env.subscribe(t, "user@example.com", "owner/repo1")
@@ -35,7 +35,7 @@ func TestGetSubscriptions_ReturnsConfirmedOnly(t *testing.T) {
 }
 
 func TestGetSubscriptions_ReturnsEmptyList(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{repoStatus: http.StatusOK})
+	env := newTestEnv(t, newGitHubMock(http.StatusOK))
 
 	w := env.getSubscriptions(t, "nobody@example.com", "test-key")
 
@@ -53,7 +53,7 @@ func TestGetSubscriptions_ReturnsEmptyList(t *testing.T) {
 }
 
 func TestGetSubscriptions_WithoutAPIKey_ReturnsUnauthorized(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{repoStatus: http.StatusOK})
+	env := newTestEnv(t, newGitHubMock(http.StatusOK))
 
 	w := env.getSubscriptions(t, "user@example.com", "")
 

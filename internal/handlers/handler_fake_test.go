@@ -55,7 +55,10 @@ func newRouter(repo SubscriptionRepository, svc SubscriptionService) *gin.Engine
 
 func subscribeBody(t *testing.T, email, repo string) *bytes.Buffer {
 	t.Helper()
-	b, _ := json.Marshal(map[string]string{"email": email, "repo": repo})
+	b, err := json.Marshal(map[string]string{"email": email, "repo": repo})
+	if err != nil {
+		t.Fatalf("encode json: %v", err)
+	}
 	return bytes.NewBuffer(b)
 }
 

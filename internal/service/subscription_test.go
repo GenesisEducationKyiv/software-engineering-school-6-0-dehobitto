@@ -39,7 +39,7 @@ func (m *mockGitHubClient) GetLatestTag(ctx context.Context, repo string) (strin
 
 func newSvc(repo SubscriptionRepository, gh GitHubClient) (*SubscriptionService, chan models.NotificationJob) {
 	jobs := make(chan models.NotificationJob, 1)
-	return NewSubscriptionService(repo, "http://localhost", jobs, gh), jobs
+	return NewSubscriptionService(repo, "http://localhost", jobs, gh, RealUUIDGenerator), jobs
 }
 
 func expectSubscriptionExists(repo *mockSubscriptionRepository, exists bool, err error) {

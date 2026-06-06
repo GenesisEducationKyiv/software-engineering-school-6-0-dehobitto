@@ -5,27 +5,36 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/mock"
 )
 
-type mockRoundTripper func(*http.Request) (*http.Response, error)
+type mockRoundTripper struct {
+	mock.Mock
+}
 
-func (m mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	return m(req)
+func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	args := m.Called(req)
+	return args.Get(0).(*http.Response), args.Error(1)
 }
 
 func newMockClient(status int, body string) *Client {
+	transport := new(mockRoundTripper)
+	transport.On("RoundTrip", mock.Anything).Return(response(status, body), nil)
+
 	return &Client{
-		baseURL: "https://api.github.test",
-		httpClient: &http.Client{Transport: mockRoundTripper(func(req *http.Request) (*http.Response, error) {
-			return &http.Response{
-				StatusCode: status,
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(strings.NewReader(body)),
-				Request:    req,
-			}, nil
-		})},
+		baseURL:    "https://api.github.test",
+		httpClient: &http.Client{Transport: transport},
+	}
+}
+
+func response(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }
 
@@ -56,12 +65,7 @@ func TestGetLatestTag(t *testing.T) {
 }
 
 func TestGetLatestTag_RateLimit(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
-	}))
-	defer server.Close()
-
-	_, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo")
+	_, err := newMockClient(http.StatusTooManyRequests, "").GetLatestTag(context.Background(), "owner/repo")
 	if err == nil {
 		t.Fatal("expected error for 429, got nil")
 	}
@@ -89,28 +93,19 @@ func TestCheckIfRepoExists(t *testing.T) {
 }
 
 func TestGetLatestTag_SendsAuthHeader(t *testing.T) {
-	c := &Client{
-		baseURL: "https://api.github.test",
-		httpClient: &http.Client{Transport: mockRoundTripper(func(req *http.Request) (*http.Response, error) {
-			if req.Header.Get("Authorization") != "Bearer test-token" {
-				return &http.Response{
-					StatusCode: http.StatusUnauthorized,
-					Body:       io.NopCloser(strings.NewReader("")),
-					Request:    req,
-				}, nil
-			}
+	transport := new(mockRoundTripper)
+	transport.On("RoundTrip", mock.MatchedBy(func(req *http.Request) bool {
+		return req.Header.Get("Authorization") == "Bearer test-token"
+	})).Return(response(http.StatusOK, `{"tag_name":"v2.0.0"}`), nil).Once()
 
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(strings.NewReader(`{"tag_name":"v2.0.0"}`)),
-				Request:    req,
-			}, nil
-		})},
-		token: "test-token",
+	c := &Client{
+		baseURL:    "https://api.github.test",
+		httpClient: &http.Client{Transport: transport},
+		token:      "test-token",
 	}
 
 	tag, err := c.GetLatestTag(context.Background(), "owner/repo")
+	transport.AssertExpectations(t)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

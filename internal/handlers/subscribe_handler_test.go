@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+
 	"subber/internal/service"
 )
 
@@ -20,8 +22,8 @@ func TestSubscribe_InputValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := &fakeSvc{}
-			r := newTestRouter(&fakeHandlerRepo{}, svc)
+			svc := new(mockSubscriptionService)
+			r := newTestRouter(new(mockSubscriptionRepository), svc)
 
 			w := do(r, http.MethodPost, "/subscribe", tt.body)
 			if w.Code != http.StatusBadRequest {
@@ -35,9 +37,7 @@ func TestSubscribe_InputValidation(t *testing.T) {
 			if got["error"] != tt.wantError {
 				t.Errorf("error = %q, want %q", got["error"], tt.wantError)
 			}
-			if svc.calls != 0 {
-				t.Errorf("service calls = %d, want 0", svc.calls)
-			}
+			svc.AssertNotCalled(t, "Subscribe", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
 }
@@ -65,8 +65,12 @@ func TestSubscribe_ServiceErrorToStatus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newTestRouter(&fakeHandlerRepo{}, &fakeSvc{err: tt.err})
+			svc := new(mockSubscriptionService)
+			svc.On("Subscribe", mock.Anything, "a@b.com", "owner/repo").Return(tt.err).Once()
+			r := newTestRouter(new(mockSubscriptionRepository), svc)
+
 			w := do(r, http.MethodPost, "/subscribe", body)
+			svc.AssertExpectations(t)
 			if w.Code != tt.want {
 				t.Errorf("status = %d, want %d", w.Code, tt.want)
 			}

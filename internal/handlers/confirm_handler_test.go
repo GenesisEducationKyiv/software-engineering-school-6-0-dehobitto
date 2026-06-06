@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
 )
 
 func TestConfirmByToken(t *testing.T) {
@@ -26,8 +27,18 @@ func TestConfirmByToken(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newTestRouter(&fakeHandlerRepo{confirmErr: tt.confirmErr}, &fakeSvc{})
+			repo := new(mockSubscriptionRepository)
+			if tt.token == validToken {
+				repo.On("ConfirmSubscriptionByToken", mock.Anything, tt.token).Return(tt.confirmErr).Once()
+			}
+			r := newTestRouter(repo, new(mockSubscriptionService))
+
 			w := do(r, http.MethodGet, "/confirm/"+tt.token, nil)
+			if tt.token == validToken {
+				repo.AssertExpectations(t)
+			} else {
+				repo.AssertNotCalled(t, "ConfirmSubscriptionByToken", mock.Anything, mock.Anything)
+			}
 			if w.Code != tt.want {
 				t.Errorf("status = %d, want %d", w.Code, tt.want)
 			}
