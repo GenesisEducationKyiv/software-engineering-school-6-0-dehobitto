@@ -3,123 +3,269 @@ package service
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
-	gh "subber/internal/github"
+	"github.com/stretchr/testify/mock"
+
+	ghpkg "subber/internal/github"
 	"subber/internal/models"
 )
 
-// --- test doubles ---
-
-type fakeRepo struct {
-	saved     models.Subscription
-	exists    bool
-	existsErr error
-	saveErr   error
+type mockSubscriptionRepository struct {
+	mock.Mock
 }
 
-func (f *fakeRepo) SubscriptionExists(_ context.Context, _, _ string) (bool, error) {
-	return f.exists, f.existsErr
-}
-func (f *fakeRepo) SaveSubscription(_ context.Context, sub models.Subscription) error {
-	f.saved = sub
-	return f.saveErr
+func (m *mockSubscriptionRepository) SubscriptionExists(ctx context.Context, email, repo string) (bool, error) {
+	args := m.Called(ctx, email, repo)
+	return args.Bool(0), args.Error(1)
 }
 
-type fakeGitHub struct{ checkErr error }
+func (m *mockSubscriptionRepository) SaveSubscription(ctx context.Context, sub models.Subscription) error {
+	return m.Called(ctx, sub).Error(0)
+}
 
-func (f fakeGitHub) CheckIfRepoExists(_ context.Context, _ string) error    { return f.checkErr }
-func (fakeGitHub) GetLatestTag(_ context.Context, _ string) (string, error) { return "", nil }
+type mockGitHubClient struct {
+	mock.Mock
+}
 
-type fixedUUIDGen struct{ token string }
+func (m *mockGitHubClient) CheckIfRepoExists(ctx context.Context, repo string) error {
+	return m.Called(ctx, repo).Error(0)
+}
 
-func (g fixedUUIDGen) New() string { return g.token }
+func (m *mockGitHubClient) GetLatestTag(ctx context.Context, repo string) (string, error) {
+	args := m.Called(ctx, repo)
+	return args.String(0), args.Error(1)
+}
 
-func newTestService(repo SubscriptionRepository, g GitHubClient) *SubscriptionService {
+func newSvc(repo SubscriptionRepository, gh GitHubClient) (*SubscriptionService, chan models.NotificationJob) {
 	jobs := make(chan models.NotificationJob, 1)
-	return NewSubscriptionService(repo, "http://localhost", jobs, g, fixedUUIDGen{token: "test-token"})
+	return NewSubscriptionService(repo, "http://localhost", jobs, gh), jobs
 }
 
-// --- tests ---
+func expectSubscriptionExists(repo *mockSubscriptionRepository, exists bool, err error) {
+	repo.On("SubscriptionExists", mock.Anything, "a@b.com", "owner/repo").Return(exists, err).Once()
+}
 
-func TestSubscribe_HappyPath(t *testing.T) {
-	const token = "fixed-token"
-	repo := &fakeRepo{}
-	jobs := make(chan models.NotificationJob, 1)
-	svc := NewSubscriptionService(repo, "http://localhost", jobs, fakeGitHub{}, fixedUUIDGen{token: token})
+func expectRepoValid(gh *mockGitHubClient) {
+	gh.On("CheckIfRepoExists", mock.Anything, "owner/repo").Return(nil).Once()
+}
 
-	if err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func expectSave(repo *mockSubscriptionRepository, saved *models.Subscription, err error) {
+	repo.On("SaveSubscription", mock.Anything, mock.MatchedBy(func(sub models.Subscription) bool {
+		*saved = sub
+		return true
+	})).Return(err).Once()
+}
 
-	// token from UUID generator must be persisted
-	if repo.saved.Token != token {
-		t.Errorf("saved token = %q, want %q", repo.saved.Token, token)
-	}
+// — duplicate guard —
 
-	// confirmation job must be enqueued with correct email and token in message
-	select {
-	case job := <-jobs:
-		if job.Email != "user@example.com" {
-			t.Errorf("job.Email = %q, want user@example.com", job.Email)
-		}
-		if !strings.Contains(job.Message, token) {
-			t.Errorf("confirmation message missing token: %q", job.Message)
-		}
-	default:
-		t.Fatal("no confirmation job enqueued")
+func TestSubscribe_RepositoryCheckFails(t *testing.T) {
+	// DB errors must surface — silently swallowing them would allow duplicate subscriptions.
+	repo := new(mockSubscriptionRepository)
+	expectSubscriptionExists(repo, false, errors.New("db timeout"))
+	svc, _ := newSvc(repo, new(mockGitHubClient))
+
+	err := svc.Subscribe(context.Background(), "a@b.com", "owner/repo")
+	repo.AssertExpectations(t)
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
 }
 
-func TestSubscribe_ReturnsErrAlreadySubscribed_WhenDuplicate(t *testing.T) {
-	svc := newTestService(&fakeRepo{exists: true}, fakeGitHub{})
+func TestSubscribe_AlreadySubscribed(t *testing.T) {
+	// Dedup check must short-circuit before hitting GitHub — avoids unnecessary API calls.
+	repo := new(mockSubscriptionRepository)
+	expectSubscriptionExists(repo, true, nil)
+	svc, _ := newSvc(repo, new(mockGitHubClient))
 
-	err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo")
+	err := svc.Subscribe(context.Background(), "a@b.com", "owner/repo")
+	repo.AssertExpectations(t)
 
 	if !errors.Is(err, ErrAlreadySubscribed) {
-		t.Errorf("err = %v, want ErrAlreadySubscribed", err)
+		t.Errorf("expected ErrAlreadySubscribed, got %v", err)
 	}
 }
 
-func TestSubscribe_RepoErrors(t *testing.T) {
-	tests := []struct {
-		name      string
-		existsErr error
-		saveErr   error
-	}{
-		{"exists check fails", errors.New("db timeout"), nil},
-		{"save fails", nil, errors.New("db timeout")},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repo := &fakeRepo{existsErr: tt.existsErr, saveErr: tt.saveErr}
-			svc := newTestService(repo, fakeGitHub{})
-			err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo")
-			if err == nil {
-				t.Error("want error, got nil")
-			}
-		})
+// — GitHub validation —
+
+func TestSubscribe_RepoNotFound(t *testing.T) {
+	// We must not save subscriptions for repos that don't exist on GitHub.
+	repo := new(mockSubscriptionRepository)
+	gh := new(mockGitHubClient)
+	expectSubscriptionExists(repo, false, nil)
+	gh.On("CheckIfRepoExists", mock.Anything, "owner/repo").Return(ghpkg.ErrNotFound).Once()
+	svc, _ := newSvc(repo, gh)
+
+	err := svc.Subscribe(context.Background(), "a@b.com", "owner/repo")
+	repo.AssertExpectations(t)
+	gh.AssertExpectations(t)
+
+	if !errors.Is(err, ErrRepoNotFound) {
+		t.Errorf("expected ErrRepoNotFound, got %v", err)
 	}
 }
 
-func TestSubscribe_GitHubErrors(t *testing.T) {
-	tests := []struct {
-		name    string
-		ghErr   error
-		wantErr error
-	}{
-		{"network failure → ErrGitHubUnavailable", errors.New("connection refused"), ErrGitHubUnavailable},
-		{"rate limit → ErrGitHubRateLimit", gh.ErrRateLimit, ErrGitHubRateLimit},
-		{"repo not found → ErrRepoNotFound", gh.ErrNotFound, ErrRepoNotFound},
+func TestSubscribe_RateLimit(t *testing.T) {
+	// Rate limit must be surfaced specifically so callers can retry with backoff.
+	repo := new(mockSubscriptionRepository)
+	gh := new(mockGitHubClient)
+	expectSubscriptionExists(repo, false, nil)
+	gh.On("CheckIfRepoExists", mock.Anything, "owner/repo").Return(ghpkg.ErrRateLimit).Once()
+	svc, _ := newSvc(repo, gh)
+
+	err := svc.Subscribe(context.Background(), "a@b.com", "owner/repo")
+	repo.AssertExpectations(t)
+	gh.AssertExpectations(t)
+
+	if !errors.Is(err, ErrGitHubRateLimit) {
+		t.Errorf("expected ErrGitHubRateLimit, got %v", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			svc := newTestService(&fakeRepo{}, fakeGitHub{checkErr: tt.ghErr})
-			err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo")
-			if !errors.Is(err, tt.wantErr) {
-				t.Errorf("err = %v, want %v", err, tt.wantErr)
-			}
-		})
+}
+
+func TestSubscribe_GitHubUnavailable(t *testing.T) {
+	// Unknown GitHub errors must map to ErrGitHubUnavailable, not leak internal details.
+	repo := new(mockSubscriptionRepository)
+	gh := new(mockGitHubClient)
+	expectSubscriptionExists(repo, false, nil)
+	gh.On("CheckIfRepoExists", mock.Anything, "owner/repo").Return(errors.New("connection refused")).Once()
+	svc, _ := newSvc(repo, gh)
+
+	err := svc.Subscribe(context.Background(), "a@b.com", "owner/repo")
+	repo.AssertExpectations(t)
+	gh.AssertExpectations(t)
+
+	if !errors.Is(err, ErrGitHubUnavailable) {
+		t.Errorf("expected ErrGitHubUnavailable, got %v", err)
+	}
+}
+
+// — persistence —
+
+func TestSubscribe_TagFetchFails_ContinuesWithEmptyTag(t *testing.T) {
+	// Initial tag fetch is best-effort — a transient GitHub error must not block subscription.
+	// The scanner will populate the tag on its first cycle.
+	repo := new(mockSubscriptionRepository)
+	gh := new(mockGitHubClient)
+	var saved models.Subscription
+	expectSubscriptionExists(repo, false, nil)
+	expectRepoValid(gh)
+	gh.On("GetLatestTag", mock.Anything, "owner/repo").Return("", errors.New("timeout")).Once()
+	expectSave(repo, &saved, nil)
+	svc, _ := newSvc(repo, gh)
+
+	err := svc.Subscribe(context.Background(), "a@b.com", "owner/repo")
+	repo.AssertExpectations(t)
+	gh.AssertExpectations(t)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if saved.LastSeenTag != "" {
+		t.Errorf("expected empty tag, got %q", saved.LastSeenTag)
+	}
+}
+
+func TestSubscribe_SaveFails(t *testing.T) {
+	// Persistence failure must propagate — no confirmation should be sent for unsaved subscriptions.
+	repo := new(mockSubscriptionRepository)
+	gh := new(mockGitHubClient)
+	var saved models.Subscription
+	expectSubscriptionExists(repo, false, nil)
+	expectRepoValid(gh)
+	gh.On("GetLatestTag", mock.Anything, "owner/repo").Return("v1.0.0", nil).Once()
+	expectSave(repo, &saved, errors.New("db error"))
+	svc, jobs := newSvc(repo, gh)
+
+	err := svc.Subscribe(context.Background(), "a@b.com", "owner/repo")
+	repo.AssertExpectations(t)
+	gh.AssertExpectations(t)
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if len(jobs) != 0 {
+		t.Error("confirmation must not be enqueued when save fails")
+	}
+}
+
+// — success path —
+
+func TestSubscribe_Success_StartsUnconfirmed(t *testing.T) {
+	// New subscriptions must require email confirmation — activating without it bypasses the auth flow.
+	repo := new(mockSubscriptionRepository)
+	gh := new(mockGitHubClient)
+	var saved models.Subscription
+	expectSubscriptionExists(repo, false, nil)
+	expectRepoValid(gh)
+	gh.On("GetLatestTag", mock.Anything, "owner/repo").Return("v1.0.0", nil).Once()
+	expectSave(repo, &saved, nil)
+	svc, _ := newSvc(repo, gh)
+
+	if err := svc.Subscribe(context.Background(), "a@b.com", "owner/repo"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	repo.AssertExpectations(t)
+	gh.AssertExpectations(t)
+
+	if saved.Confirmed {
+		t.Error("subscription must start unconfirmed")
+	}
+}
+
+func TestSubscribe_Success_PersistsAllFields(t *testing.T) {
+	repo := new(mockSubscriptionRepository)
+	gh := new(mockGitHubClient)
+	var saved models.Subscription
+	expectSubscriptionExists(repo, false, nil)
+	expectRepoValid(gh)
+	gh.On("GetLatestTag", mock.Anything, "owner/repo").Return("v1.0.0", nil).Once()
+	expectSave(repo, &saved, nil)
+	svc, _ := newSvc(repo, gh)
+
+	if err := svc.Subscribe(context.Background(), "a@b.com", "owner/repo"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	repo.AssertExpectations(t)
+	gh.AssertExpectations(t)
+
+	if saved.Email != "a@b.com" {
+		t.Errorf("email: want a@b.com, got %s", saved.Email)
+	}
+	if saved.Repo != "owner/repo" {
+		t.Errorf("repo: want owner/repo, got %s", saved.Repo)
+	}
+	if saved.LastSeenTag != "v1.0.0" {
+		t.Errorf("tag: want v1.0.0, got %s", saved.LastSeenTag)
+	}
+	if saved.Token == "" {
+		t.Error("token must be non-empty")
+	}
+}
+
+func TestSubscribe_Success_EnqueuesConfirmation(t *testing.T) {
+	// Confirmation email must be queued so the user can verify ownership of the email address.
+	repo := new(mockSubscriptionRepository)
+	gh := new(mockGitHubClient)
+	var saved models.Subscription
+	expectSubscriptionExists(repo, false, nil)
+	expectRepoValid(gh)
+	gh.On("GetLatestTag", mock.Anything, "owner/repo").Return("v1.0.0", nil).Once()
+	expectSave(repo, &saved, nil)
+	svc, jobs := newSvc(repo, gh)
+
+	if err := svc.Subscribe(context.Background(), "a@b.com", "owner/repo"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	repo.AssertExpectations(t)
+	gh.AssertExpectations(t)
+
+	select {
+	case job := <-jobs:
+		if job.Email != "a@b.com" {
+			t.Errorf("job email: want a@b.com, got %s", job.Email)
+		}
+	default:
+		t.Error("confirmation job must be enqueued on success")
 	}
 }

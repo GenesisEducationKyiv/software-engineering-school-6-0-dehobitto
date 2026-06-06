@@ -5,7 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strings"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -52,6 +52,18 @@ func TestGetLatestTag(t *testing.T) {
 				t.Errorf("tag = %q, want %q", tag, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetLatestTag_RateLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	_, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo")
+	if err == nil {
+		t.Fatal("expected error for 429, got nil")
 	}
 }
 
