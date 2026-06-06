@@ -2,8 +2,8 @@ FROM mcr.microsoft.com/playwright:v1.52.0-noble
 
 WORKDIR /app/e2e
 
-COPY tests/e2e/package.json ./
-RUN npm install
+COPY tests/e2e/package.json tests/e2e/package-lock.json ./
+RUN npm ci
 
 COPY tests/e2e/ ./
 COPY internal/static/ ./static/
