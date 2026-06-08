@@ -6,9 +6,12 @@ services:
   rabbitmq:
     image: rabbitmq:4.3.1-management-alpine
     container_name: subber_rabbitmq
+    command: >
+      sh -c "rabbitmq-plugins enable --offline rabbitmq_prometheus && rabbitmq-server"
     ports:
       - "5672:5672"
       - "15672:15672"
+      - "15692:15692"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 5s
@@ -32,6 +35,26 @@ services:
       retries: 20
     restart: unless-stopped
 
+  elasticsearch-setup:
+    image: curlimages/curl:latest
+    container_name: subber_elasticsearch_setup
+    volumes:
+      - ./docker/elasticsearch:/elasticsearch:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    command: >
+      sh -c '
+      curl -fsS -X PUT "http://elasticsearch:9200/_ilm/policy/subber-logs-7d"
+      -H "Content-Type: application/json"
+      --data-binary @/elasticsearch/ilm/subber-logs-policy.json
+      &&
+      curl -fsS -X PUT "http://elasticsearch:9200/_index_template/subber-logs-template"
+      -H "Content-Type: application/json"
+      --data-binary @/elasticsearch/templates/subber-logs-template.json
+      '
+    restart: "no"
+
   logstash:
     image: logstash:9.4.2
     container_name: subber_logstash
@@ -46,8 +69,8 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
+      elasticsearch-setup:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   kibana:
@@ -84,6 +107,8 @@ services:
     restart: "no"
 
   subber:
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
     depends_on:
       rabbitmq:
         condition: service_healthy

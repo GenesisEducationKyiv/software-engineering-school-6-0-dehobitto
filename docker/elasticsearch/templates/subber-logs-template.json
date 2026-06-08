@@ -1,0 +1,47 @@
+{
+  "index_patterns": [
+    "subber-logs-*"
+  ],
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "subber-logs-7d",
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "dynamic": true,
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "duration_ms": {
+          "type": "long"
+        },
+        "status_code": {
+          "type": "integer"
+        },
+        "level": {
+          "type": "keyword"
+        },
+        "component": {
+          "type": "keyword"
+        },
+        "route": {
+          "type": "keyword"
+        },
+        "request_id": {
+          "type": "keyword"
+        },
+        "scan_cycle_id": {
+          "type": "keyword"
+        },
+        "email_hash": {
+          "type": "keyword"
+        },
+        "client_ip_hash": {
+          "type": "keyword"
+        }
+      }
+    }
+  }
+}
