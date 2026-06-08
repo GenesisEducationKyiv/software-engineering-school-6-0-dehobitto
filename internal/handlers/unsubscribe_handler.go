@@ -5,6 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"subber/internal/logger"
 )
 
 func (h *Handler) UnsubscribeByToken(c *gin.Context) {
@@ -15,7 +17,7 @@ func (h *Handler) UnsubscribeByToken(c *gin.Context) {
 		return
 	}
 
-	handlerLog.WithField("action", "unsubscribe").Info("user action")
+	logger.WithRequestID(h.log, c.Request.Context()).WithField("action", "unsubscribe").Info("user action")
 
 	err := h.repo.Unsubscribe(c.Request.Context(), token)
 	if err != nil {

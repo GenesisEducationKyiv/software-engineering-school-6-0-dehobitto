@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"subber/internal/logger"
 	"subber/internal/models"
 	"subber/internal/service"
 	"subber/internal/validators"
@@ -24,7 +25,10 @@ func (h *Handler) Subscribe(c *gin.Context) {
 		return
 	}
 
-	handlerLog.WithField("action", "subscribe").WithField("email", input.Email).WithField("repo", input.Repo).Info("user action")
+	logger.WithRequestID(logger.WithEmailHash(h.log, input.Email), c.Request.Context()).
+		WithField("action", "subscribe").
+		WithField("repo", input.Repo).
+		Info("user action")
 
 	err := h.svc.Subscribe(c.Request.Context(), input.Email, input.Repo)
 	if err == nil {
@@ -42,7 +46,10 @@ func (h *Handler) Subscribe(c *gin.Context) {
 	case errors.Is(err, service.ErrGitHubUnavailable):
 		c.JSON(http.StatusBadGateway, gin.H{"error": "External API error"})
 	default:
-		handlerLog.WithField("email", input.Email).WithField("repo", input.Repo).WithError(err).Error("subscribe failed")
+		logger.WithRequestID(logger.WithEmailHash(h.log, input.Email), c.Request.Context()).
+			WithField("repo", input.Repo).
+			WithError(err).
+			Error("subscribe failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 	}
 }

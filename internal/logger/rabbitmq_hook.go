@@ -3,21 +3,55 @@ package logger
 import (
 	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	logsQueue   = "logs"
-	dlxExchange = "logs.dlx"
-	deadQueue   = "logs.dead"
+	logsQueue            = "logs"
+	dlxExchange          = "logs.dlx"
+	deadQueue            = "logs.dead"
+	defaultLogBufferSize = 1000
+	shutdownDrainTimeout = 5 * time.Second
 )
 
-// RabbitMQHook publishes each logrus entry as a persistent JSON message.
+// RabbitMQHook asynchronously publishes each logrus entry as a persistent JSON message.
 // Unprocessable messages are routed to logs.dead via a dead-letter exchange.
 type RabbitMQHook struct {
+	publisher logPublisher
+	entries   chan []byte
+	closed    bool
+	mu        sync.RWMutex
+	dropped   atomic.Uint64
+	wg        sync.WaitGroup
+	metrics   LogPipelineMetrics
+}
+
+type LogPipelineMetrics interface {
+	IncLogEntriesEnqueued()
+	IncLogEntriesDropped()
+	IncLogEntriesPublished()
+	IncLogPublishErrors()
+}
+
+type logPublisher interface {
+	Publish(body []byte) error
+}
+
+type amqpLogPublisher struct {
 	ch *amqp.Channel
+}
+
+func (p amqpLogPublisher) Publish(body []byte) error {
+	return p.ch.Publish("", logsQueue, false, false, amqp.Publishing{
+		ContentType:  "application/json",
+		DeliveryMode: amqp.Persistent,
+		Body:         body,
+	})
 }
 
 // dialAMQP dials the broker and opens a channel. The returned cleanup closes
@@ -73,7 +107,7 @@ func declareTopology(ch *amqp.Channel) error {
 
 // NewRabbitMQHook connects to the broker, declares the queue topology, and
 // returns a ready hook plus a cleanup function to close the connection.
-func NewRabbitMQHook(url string) (*RabbitMQHook, func(), error) {
+func NewRabbitMQHook(url string, metrics LogPipelineMetrics) (*RabbitMQHook, func(), error) {
 	_, ch, cleanup, err := dialAMQP(url)
 	if err != nil {
 		return nil, nil, err
@@ -84,7 +118,12 @@ func NewRabbitMQHook(url string) (*RabbitMQHook, func(), error) {
 		return nil, nil, err
 	}
 
-	return &RabbitMQHook{ch: ch}, cleanup, nil
+	hook := newRabbitMQHook(amqpLogPublisher{ch: ch}, defaultLogBufferSize, metrics)
+
+	return hook, func() {
+		hook.Close()
+		cleanup()
+	}, nil
 }
 
 func (h *RabbitMQHook) Levels() []logrus.Level { return logrus.AllLevels }
@@ -94,12 +133,86 @@ func (h *RabbitMQHook) Fire(entry *logrus.Entry) error {
 	if err != nil {
 		return err
 	}
-	if err = h.ch.Publish("", logsQueue, false, false, amqp.Publishing{
-		ContentType:  "application/json",
-		DeliveryMode: amqp.Persistent,
-		Body:         b,
-	}); err != nil {
-		fmt.Fprintf(os.Stderr, "rabbitmq hook: publish failed: %v — original entry: %s\n", err, b)
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	if h.closed {
+		return nil
+	}
+
+	select {
+	case h.entries <- b:
+		if h.metrics != nil {
+			h.metrics.IncLogEntriesEnqueued()
+		}
+	default:
+		dropped := h.dropped.Add(1)
+		if h.metrics != nil {
+			h.metrics.IncLogEntriesDropped()
+		}
+		fmt.Fprintf(os.Stderr, "rabbitmq hook: buffer full, dropped log entry (dropped_total=%d)\n", dropped)
 	}
 	return nil
+}
+
+func newRabbitMQHook(publisher logPublisher, bufferSize int, metrics LogPipelineMetrics) *RabbitMQHook {
+	if bufferSize <= 0 {
+		bufferSize = defaultLogBufferSize
+	}
+
+	h := &RabbitMQHook{
+		publisher: publisher,
+		entries:   make(chan []byte, bufferSize),
+		metrics:   metrics,
+	}
+	h.wg.Add(1)
+	go h.publishLoop()
+
+	return h
+}
+
+func (h *RabbitMQHook) publishLoop() {
+	defer h.wg.Done()
+
+	for b := range h.entries {
+		if err := h.publish(b); err != nil {
+			if h.metrics != nil {
+				h.metrics.IncLogPublishErrors()
+			}
+			fmt.Fprintf(os.Stderr, "rabbitmq hook: publish failed: %v; original entry: %s\n", err, b)
+			continue
+		}
+		if h.metrics != nil {
+			h.metrics.IncLogEntriesPublished()
+		}
+	}
+}
+
+func (h *RabbitMQHook) publish(body []byte) error {
+	return h.publisher.Publish(body)
+}
+
+func (h *RabbitMQHook) Close() {
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return
+	}
+	h.closed = true
+
+	close(h.entries)
+	h.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		h.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(shutdownDrainTimeout):
+		fmt.Fprintf(os.Stderr, "rabbitmq hook: shutdown drain timed out after %s\n", shutdownDrainTimeout)
+	}
 }

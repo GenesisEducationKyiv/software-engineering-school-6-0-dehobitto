@@ -26,6 +26,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	unsetKeys(t,
 		"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME",
 		"PORT", "GITHUB_TOKEN", "SMTP_HOST", "SMTP_PORT",
+		"GITHUB_BASE_URL",
 		"SMTP_EMAIL", "SMTP_PASSWORD", "REDIS_ADDR", "API_KEY", "BASE_URL",
 	)
 
@@ -41,6 +42,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		{"DBName", cfg.DBName, "db"},
 		{"ServerPort", cfg.ServerPort, "8080"},
 		{"GitHubToken", cfg.GitHubToken, ""},
+		{"GitHubBaseURL", cfg.GitHubBaseURL, "https://api.github.com"},
 		{"SMTPHost", cfg.SMTPHost, "smtp.gmail.com"},
 		{"SMTPPort", cfg.SMTPPort, "587"},
 		{"SMTPEmail", cfg.SMTPEmail, ""},
@@ -60,6 +62,7 @@ func TestLoadConfig_FromEnv(t *testing.T) {
 	t.Setenv("DB_HOST", "customhost")
 	t.Setenv("DB_PORT", "9999")
 	t.Setenv("API_KEY", "my-secret")
+	t.Setenv("GITHUB_BASE_URL", "http://github-mock:8080")
 
 	cfg := LoadConfig()
 
@@ -71,6 +74,9 @@ func TestLoadConfig_FromEnv(t *testing.T) {
 	}
 	if cfg.APIKey != "my-secret" {
 		t.Errorf("APIKey = %q, want my-secret", cfg.APIKey)
+	}
+	if cfg.GitHubBaseURL != "http://github-mock:8080" {
+		t.Errorf("GitHubBaseURL = %q, want http://github-mock:8080", cfg.GitHubBaseURL)
 	}
 }
 

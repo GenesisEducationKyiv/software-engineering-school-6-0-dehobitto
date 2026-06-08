@@ -8,8 +8,6 @@ import (
 	"subber/internal/models"
 )
 
-var handlerLog = logger.New().WithField("component", "handler")
-
 type SubscriptionRepository interface {
 	ConfirmSubscriptionByToken(ctx context.Context, token string) error
 	Unsubscribe(ctx context.Context, token string) error
@@ -23,11 +21,16 @@ type SubscriptionService interface {
 type Handler struct {
 	repo SubscriptionRepository
 	svc  SubscriptionService
+	log  logger.Logger
 }
 
-func NewHandler(repo SubscriptionRepository, svc SubscriptionService) *Handler {
+func NewHandler(repo SubscriptionRepository, svc SubscriptionService, log logger.Logger) *Handler {
+	if log == nil {
+		log = logger.NewNoop()
+	}
 	return &Handler{
 		repo: repo,
 		svc:  svc,
+		log:  log,
 	}
 }

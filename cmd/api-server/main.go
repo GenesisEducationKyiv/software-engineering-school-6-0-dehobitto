@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 
@@ -19,6 +20,7 @@ import (
 	"subber/internal/infra/cache"
 	"subber/internal/infra/database"
 	applogger "subber/internal/logger"
+	"subber/internal/metrics"
 	"subber/internal/models"
 	"subber/internal/routes"
 	"subber/internal/service"
@@ -38,11 +40,16 @@ func run() error {
 		return fmt.Errorf("BASE_URL environment variable is required")
 	}
 
-	cleanupLogger, err := setupLogger(cfg)
+	metricRegistry := prometheus.NewRegistry()
+	metrics.RegisterRuntimeCollectors(metricRegistry)
+	appMetrics := metrics.New(metricRegistry)
+
+	cleanupLogger, err := setupLogger(cfg, appMetrics)
 	if err != nil {
 		return fmt.Errorf("logger setup failed: %w", err)
 	}
 	defer cleanupLogger()
+	log := applogger.New()
 
 	connectionPool, err := database.Connect(cfg)
 	if err != nil {
@@ -59,7 +66,6 @@ func run() error {
 	if err := redisCache.Ping(context.Background()); err != nil {
 		return fmt.Errorf("connection to redis failed: %w", err)
 	}
-	githubClient := gh.NewClient(cfg.GitHubToken, redisCache)
 
 	jobsChannel := make(chan models.NotificationJob, 100)
 
@@ -68,18 +74,22 @@ func run() error {
 
 	group, groupCtx := errgroup.WithContext(ctx)
 
-	notifier := workers.NewNotifierWorker(workers.NewSMTPSender(cfg))
+	smtpSender := workers.NewSMTPSender(cfg)
+	notifier := workers.NewNotifierWorker(smtpSender, log.WithField("component", "notifier"), appMetrics)
 	group.Go(withRecover(func() error {
 		return notifier.Start(groupCtx, jobsChannel)
 	}))
 
-	scanner := workers.NewScannerWorker(repo, jobsChannel, githubClient)
+	githubClient := gh.NewClientWithBaseURL(cfg.GitHubBaseURL, cfg.GitHubToken, redisCache, log.WithField("component", "github"))
+
+	scanner := workers.NewScannerWorker(repo, jobsChannel, githubClient, log.WithField("component", "scanner"), appMetrics)
 	group.Go(withRecover(func() error {
 		return scanner.StartScanner(groupCtx)
 	}))
 
-	svc := service.NewSubscriptionService(repo, cfg.BaseURL, jobsChannel, githubClient, service.RealUUIDGenerator)
-	router := routes.SetupRouter(repo, svc, cfg)
+	svc := service.NewSubscriptionService(repo, cfg.BaseURL, jobsChannel, githubClient, service.RealUUIDGenerator, log.WithField("component", "service"))
+
+	router := routes.SetupRouter(repo, svc, cfg, log, appMetrics, metricRegistry)
 	srv := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
 		Handler:           router,
@@ -96,28 +106,21 @@ func run() error {
 	group.Go(func() error {
 		<-groupCtx.Done()
 
-		log.Println("Shutting down HTTP server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Printf("HTTP server shutdown error: %v", err)
-		}
-
-		log.Println("Closing jobs channel...")
+		err := srv.Shutdown(shutdownCtx)
 		close(jobsChannel)
 
-		return nil
+		return err
 	})
-
-	log.Printf("Server started on :%s", cfg.ServerPort)
 
 	return group.Wait()
 }
 
 // setupLogger configures the global logrus instance and optionally adds the RabbitMQ hook.
 // The returned func must be deferred to close the AMQP connection and log file on shutdown.
-func setupLogger(cfg *config.Config) (func(), error) {
+func setupLogger(cfg *config.Config, logMetrics applogger.LogPipelineMetrics) (func(), error) {
 	logrus.SetFormatter(&logrus.JSONFormatter{})
 
 	level, err := logrus.ParseLevel(cfg.LogLevel)
@@ -138,7 +141,7 @@ func setupLogger(cfg *config.Config) (func(), error) {
 
 	var amqpCleanup func()
 	if cfg.RabbitMQURL != "" {
-		hook, cleanup, err := applogger.NewRabbitMQHook(cfg.RabbitMQURL)
+		hook, cleanup, err := applogger.NewRabbitMQHook(cfg.RabbitMQURL, logMetrics)
 		if err != nil {
 			if logFile != nil {
 				_ = logFile.Close()

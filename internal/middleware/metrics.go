@@ -5,30 +5,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"subber/internal/metrics"
 )
 
-var (
-	httpRequestsTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "http_requests_total",
-			Help: "Total number of HTTP requests",
-		},
-		[]string{"method", "path", "status"},
-	)
-
-	httpRequestDuration = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "http_request_duration_seconds",
-			Help:    "Duration of HTTP requests in seconds",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"method", "path"},
-	)
-)
-
-func PrometheusMiddleware() gin.HandlerFunc {
+func PrometheusMiddleware(appMetrics *metrics.Metrics) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 
@@ -36,8 +17,12 @@ func PrometheusMiddleware() gin.HandlerFunc {
 
 		duration := time.Since(start).Seconds()
 		status := strconv.Itoa(c.Writer.Status())
+		route := c.FullPath()
+		if route == "" {
+			route = "unmatched"
+		}
 
-		httpRequestsTotal.WithLabelValues(c.Request.Method, c.FullPath(), status).Inc()
-		httpRequestDuration.WithLabelValues(c.Request.Method, c.FullPath()).Observe(duration)
+		appMetrics.HTTPRequestsTotal.WithLabelValues(c.Request.Method, route, status).Inc()
+		appMetrics.HTTPRequestDuration.WithLabelValues(c.Request.Method, route).Observe(duration)
 	}
 }

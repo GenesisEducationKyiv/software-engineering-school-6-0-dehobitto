@@ -9,9 +9,8 @@ import (
 	"subber/internal/github"
 	"subber/internal/logger"
 	"subber/internal/models"
+	"subber/internal/requestid"
 )
-
-var svcLog = logger.New().WithField("component", "service")
 
 type SubscriptionRepository interface {
 	SubscriptionExists(ctx context.Context, email, repo string) (bool, error)
@@ -36,15 +35,20 @@ type SubscriptionService struct {
 	jobs    chan<- models.NotificationJob
 	github  GitHubClient
 	gen     UUIDGenerator
+	log     logger.Logger
 }
 
-func NewSubscriptionService(repo SubscriptionRepository, baseURL string, jobs chan<- models.NotificationJob, gh GitHubClient, gen UUIDGenerator) *SubscriptionService {
+func NewSubscriptionService(repo SubscriptionRepository, baseURL string, jobs chan<- models.NotificationJob, gh GitHubClient, gen UUIDGenerator, log logger.Logger) *SubscriptionService {
+	if log == nil {
+		log = logger.NewNoop()
+	}
 	return &SubscriptionService{
 		repo:    repo,
 		baseURL: baseURL,
 		jobs:    jobs,
 		github:  gh,
 		gen:     gen,
+		log:     log,
 	}
 }
 
@@ -64,7 +68,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 
 	tag, err := s.github.GetLatestTag(ctx, repo)
 	if err != nil {
-		svcLog.WithField("repo", repo).WithError(err).Warn("could not fetch initial tag")
+		logger.WithRequestID(s.log, ctx).WithField("repo", repo).WithError(err).Warn("could not fetch initial tag")
 	}
 
 	sub := models.Subscription{
@@ -79,7 +83,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 		return fmt.Errorf("save subscription: %w", err)
 	}
 
-	s.enqueueConfirmation(sub.Email, sub.Repo, sub.Token)
+	s.enqueueConfirmation(ctx, sub.Email, sub.Repo, sub.Token)
 	return nil
 }
 
@@ -97,17 +101,22 @@ func (s *SubscriptionService) validateRepoOnGitHub(ctx context.Context, repo str
 	}
 }
 
-func (s *SubscriptionService) enqueueConfirmation(email, repo, token string) {
+func (s *SubscriptionService) enqueueConfirmation(ctx context.Context, email, repo, token string) {
 	confirmURL := fmt.Sprintf("%s/api/confirm/%s", s.baseURL, token)
 	message := fmt.Sprintf(
 		"Welcome! Please confirm your subscription to GitHub repository updates by clicking here: %s",
 		confirmURL,
 	)
 
+	job := models.NotificationJob{Email: email, Repo: repo, Message: message}
+	if id, ok := requestid.FromContext(ctx); ok {
+		job.RequestID = id
+	}
+
 	select {
-	case s.jobs <- models.NotificationJob{Email: email, Repo: repo, Message: message}:
-		svcLog.WithField("email", email).WithField("repo", repo).Info("confirmation job queued")
+	case s.jobs <- job:
+		logger.WithRequestID(logger.WithEmailHash(s.log, email), ctx).WithField("repo", repo).Info("confirmation job queued")
 	default:
-		svcLog.WithField("email", email).Error("notification channel full, dropping confirmation")
+		logger.WithRequestID(logger.WithEmailHash(s.log, email), ctx).Error("notification channel full, dropping confirmation")
 	}
 }

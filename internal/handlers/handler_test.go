@@ -7,13 +7,15 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+
+	"subber/internal/logger"
 )
 
 // newTestRouter wires all handler routes onto a test gin engine.
 func newTestRouter(repo SubscriptionRepository, svc SubscriptionService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := NewHandler(repo, svc)
+	h := NewHandler(repo, svc, logger.NewNoop())
 	r.POST("/subscribe", h.Subscribe)
 	r.GET("/confirm/:token", h.ConfirmByToken)
 	r.GET("/unsubscribe/:token", h.UnsubscribeByToken)

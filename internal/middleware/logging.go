@@ -8,9 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var httpLog = logger.New().WithField("component", "http")
-
-func LoggingMiddleware() gin.HandlerFunc {
+func LoggingMiddleware(log logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 
@@ -18,13 +16,22 @@ func LoggingMiddleware() gin.HandlerFunc {
 
 		duration := time.Since(start).Milliseconds()
 		statusCode := c.Writer.Status()
+		route := c.FullPath()
+		if route == "" {
+			route = "unmatched"
+		}
 
-		entry := httpLog.
+		entry := logger.WithRequestID(log, c.Request.Context()).
 			WithField("method", c.Request.Method).
-			WithField("path", c.FullPath()).
+			WithField("route", route).
 			WithField("status_code", statusCode).
 			WithField("duration_ms", duration).
-			WithField("ip", c.ClientIP())
+			WithField("has_query", c.Request.URL.RawQuery != "").
+			WithField("user_agent", c.Request.UserAgent())
+
+		if ipHash := logger.IPHash(c.ClientIP()); ipHash != "" {
+			entry = entry.WithField("client_ip_hash", ipHash)
+		}
 
 		switch {
 		case statusCode >= 500:
