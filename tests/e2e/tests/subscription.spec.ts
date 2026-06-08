@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { SubscriptionPage } from '../pages/subscription-page';
 
+const apiKey = process.env.API_KEY ?? 'test-key';
+
 test('form renders with all inputs and submit button', async ({ page }) => {
   const sub = new SubscriptionPage(page);
   await sub.goto();
@@ -11,54 +13,29 @@ test('form renders with all inputs and submit button', async ({ page }) => {
   await expect(sub.submitButton).toBeVisible();
 });
 
-test('shows success message when subscription succeeds', async ({ page }) => {
-  await page.route('/api/subscribe', route =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: 'Subscription successful. Confirmation email sent.' }),
-    }),
-  );
-
+test('subscribes through the real backend and shows duplicate conflict', async ({ page }) => {
   const sub = new SubscriptionPage(page);
+  const email = `e2e-${Date.now()}@example.com`;
+
   await sub.goto();
-  await sub.fillForm('user@example.com', 'owner/repo', 'api-key');
+  await sub.fillForm(email, 'owner/repo', apiKey);
   await sub.submit();
 
   await expect(sub.successMessage).toBeVisible();
   await expect(sub.successMessage).toContainText('Subscription successful');
-});
 
-test('shows error message when already subscribed', async ({ page }) => {
-  await page.route('/api/subscribe', route =>
-    route.fulfill({
-      status: 409,
-      contentType: 'application/json',
-      body: JSON.stringify({ error: 'Email already subscribed to this repository' }),
-    }),
-  );
-
-  const sub = new SubscriptionPage(page);
-  await sub.goto();
-  await sub.fillForm('user@example.com', 'owner/repo', 'api-key');
+  await sub.fillForm(email, 'owner/repo', apiKey);
   await sub.submit();
 
   await expect(sub.errorMessage).toBeVisible();
   await expect(sub.errorMessage).toContainText('already subscribed');
 });
 
-test('shows error message when repository not found', async ({ page }) => {
-  await page.route('/api/subscribe', route =>
-    route.fulfill({
-      status: 404,
-      contentType: 'application/json',
-      body: JSON.stringify({ error: 'Repository not found on GitHub' }),
-    }),
-  );
-
+test('shows real backend validation error when repository is not found', async ({ page }) => {
   const sub = new SubscriptionPage(page);
+
   await sub.goto();
-  await sub.fillForm('user@example.com', 'owner/nonexistent', 'api-key');
+  await sub.fillForm(`missing-${Date.now()}@example.com`, 'owner/missing', apiKey);
   await sub.submit();
 
   await expect(sub.errorMessage).toBeVisible();
