@@ -37,10 +37,13 @@ The decisive factors are delivery reliability and separation of concerns. Direct
 
 * **Broker:** RabbitMQ 3.x with management plugin (`rabbitmq:3-management`) added to `docker-compose.yml`.
 * **Queue:** `logs`, declared durable with persistent message delivery mode so messages survive broker restart.
-* **Producer:** logrus AMQP hook publishes each log entry as a JSON-encoded message to the `logs` queue via AMQP.
+* **Producer:** logrus AMQP hook serializes each log entry as JSON and enqueues it into a bounded in-process buffer. A dedicated background publisher sends buffered entries to RabbitMQ via AMQP.
 * **Consumer:** Logstash `rabbitmq` input plugin subscribes to the `logs` queue with `ack => true` so messages are acknowledged only after successful processing.
 * **Dead letter exchange:** `logs.dlx` exchange bound to `logs.dead` queue; messages that Logstash cannot process are routed there rather than dropped.
 * **Logstash pipeline:** `rabbitmq input → (no filter needed, messages are already valid JSON) → elasticsearch output`.
+* **Backpressure policy:** logging must not block application request handling indefinitely. If the in-process buffer is full, the hook drops the log entry and writes a short warning to stderr. On application shutdown the hook drains buffered messages with a bounded timeout before closing the AMQP connection.
+* **Metrics:** the hook records Prometheus counters for enqueued, dropped, published, and failed publish attempts.
+* **Retention:** Elasticsearch setup applies a `subber-logs-7d` ILM policy and index template to keep Subber log indices for 7 days.
 
 ## Consequences
 
@@ -50,9 +53,12 @@ The decisive factors are delivery reliability and separation of concerns. Direct
 * Redis remains dedicated to GitHub API caching with a predictable memory budget.
 * The application has no runtime dependency on Logstash - it only requires RabbitMQ to be reachable.
 * Dead letter queue provides an audit trail of any messages that failed processing.
+* RabbitMQ publishing latency is kept off the request path in the steady state.
+* Log delivery degradation is visible in Prometheus and Grafana through explicit logging-pipeline counters.
 
 ### Negatives
 
 * One additional service in Docker Compose (RabbitMQ).
-* The logrus AMQP hook introduces a network call per log entry - synchronous publishing could add latency; must be configured with async/buffered mode or fire-and-forget semantics.
+* The bounded in-process buffer can drop logs during sustained broker outages or log spikes. Dropping logs is preferred over unbounded memory growth or request latency amplification.
 * RabbitMQ management and health monitoring adds operational overhead compared to a simple TCP socket.
+* A 7-day retention window is a local/default operational choice; production deployments may need a longer retention policy or rollover based on compliance, cost, and traffic volume.
