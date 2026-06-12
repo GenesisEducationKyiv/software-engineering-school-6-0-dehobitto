@@ -74,22 +74,22 @@ sh scripts/kafka-e2e.sh
 
 ## Load Test
 
-The load test uses `k6` and targets the running subscription API.
+The load test uses `k6` and targets the running subscription API. If `k6` is not installed locally, run it through Docker.
 
 ```powershell
-k6 run scripts/loadtest.js
+docker run --rm -i `
+  -e BASE_URL=http://host.docker.internal:8080 `
+  -e API_KEY=dev-api-key `
+  -v ${PWD}/scripts:/scripts `
+  grafana/k6 run /scripts/loadtest.js
 ```
 
-Override the target URL or API key when needed:
-
-```powershell
-$env:BASE_URL = "http://localhost:8080"
-$env:API_KEY = "dev-api-key"
-k6 run scripts/loadtest.js
-```
-
-or:
+Use a different target URL or API key when needed by changing `BASE_URL` and `API_KEY`.
 
 ```sh
-BASE_URL=http://localhost:8080 API_KEY=dev-api-key k6 run scripts/loadtest.js
+docker run --rm -i \
+  -e BASE_URL=http://host.docker.internal:8080 \
+  -e API_KEY=dev-api-key \
+  -v "$PWD/scripts:/scripts" \
+  grafana/k6 run /scripts/loadtest.js
 ```

@@ -184,14 +184,16 @@ Mailpit UI is available at http://localhost:8025 for local confirmation and rele
 ## Load Test
 
 ```bash
-k6 run scripts/loadtest.js
+docker run --rm -i \
+  -e BASE_URL=http://host.docker.internal:8080 \
+  -e API_KEY=dev-api-key \
+  -v ${PWD}/scripts:/scripts \
+  grafana/k6 run /scripts/loadtest.js
 ```
 
-The load test targets `http://localhost:8080` by default and exercises subscribe, list subscriptions, confirm, and unsubscribe paths. Override the target or API key when needed:
+The load test exercises subscribe, list subscriptions, confirm, and unsubscribe paths.
 
-```bash
-BASE_URL=http://localhost:8080 API_KEY=dev-api-key k6 run scripts/loadtest.js
-```
+When `k6` runs in Docker, `host.docker.internal` reaches the API running on the host machine.
 
 Keep the microservice stack running while the load test executes. Prometheus and Grafana can be used to inspect service metrics during the run.
 
