@@ -26,6 +26,7 @@ Shared code lives in `pkg`. Service-specific code stays inside each service modu
 | Kafka | localhost:9092 | Domain event bus |
 | Redis | localhost:6379 | Scanner GitHub cache |
 | Elasticsearch | http://localhost:9200 | Log search |
+| Kibana | http://localhost:5601 | Log dashboard/search UI |
 | Vector | http://localhost:8686 | Log sidecar input |
 | Prometheus | http://localhost:9090 | Metrics scraping |
 | Grafana | http://localhost:3000 | Metrics dashboards |
@@ -159,7 +160,7 @@ pwsh scripts/runtime-smoke.ps1
 sh scripts/runtime-smoke.sh
 ```
 
-Runtime smoke is a fast "is the stack alive?" check. It validates compose config, HTTP endpoints, all three metrics endpoints, Prometheus targets, Grafana datasource/dashboard provisioning, Mailpit, Elasticsearch, required Kafka topics, and the Vector-to-Elasticsearch log path.
+Runtime smoke is a fast "is the stack alive?" check. It validates compose config, HTTP endpoints, all three metrics endpoints, Prometheus targets, Grafana datasource/dashboard provisioning, Mailpit, Elasticsearch, Kibana, required Kafka topics, and the Vector-to-Elasticsearch log path.
 
 Start the stack from the smoke script when needed:
 

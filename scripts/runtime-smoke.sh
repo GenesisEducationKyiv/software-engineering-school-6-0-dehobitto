@@ -51,6 +51,10 @@ check_elastic() {
   curl -fsS "http://localhost:9200/_cluster/health" | grep -Eq '"status":"(green|yellow)"'
 }
 
+check_kibana_ready() {
+  curl -fsS "http://localhost:5601/api/status" | grep -Eq '"level":"(available|degraded)"'
+}
+
 check_prometheus_ready() {
   curl -fsS "http://localhost:9090/-/ready" >/dev/null
 }
@@ -112,6 +116,7 @@ wait_until "scanner-service metrics" check_url "http://localhost:8081/metrics"
 wait_until "notification-service metrics" check_url "http://localhost:8082/metrics"
 wait_until "mailpit api" check_url "http://localhost:8025/api/v1/messages"
 wait_until "elasticsearch health" check_elastic
+wait_until "kibana ready" check_kibana_ready
 wait_until "prometheus ready" check_prometheus_ready
 wait_until "prometheus service targets" check_prometheus_targets
 wait_until "grafana ready" check_grafana_ready

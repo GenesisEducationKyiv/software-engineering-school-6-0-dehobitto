@@ -65,6 +65,7 @@ This file records architecture changes made after the original SDD. The original
 * Services push logs to Vector by default.
 * Optional file log duplication can be enabled through config, but is disabled by default.
 * Vector batches logs to Elasticsearch by size/time.
+* Restored Kibana as the log dashboard/search UI and moved the dashboard artifact to `deployments/docker/kibana/dashboards.ndjson`.
 * Prometheus scrapes metrics from all three services.
 * Grafana is provisioned with a Prometheus datasource and `Subber Overview` dashboard.
 

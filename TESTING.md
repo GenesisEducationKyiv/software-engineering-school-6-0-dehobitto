@@ -24,7 +24,7 @@ docker compose -f compose.microservices.yml config --quiet
 
 ## Runtime Smoke
 
-Runtime smoke validates that the local stack is alive: service endpoints, metrics endpoints, Prometheus targets, Grafana provisioning, Kafka topics, Mailpit, Elasticsearch, and Vector log indexing.
+Runtime smoke validates that the local stack is alive: service endpoints, metrics endpoints, Prometheus targets, Grafana provisioning, Kafka topics, Mailpit, Elasticsearch, Kibana, and Vector log indexing.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/runtime-smoke.ps1

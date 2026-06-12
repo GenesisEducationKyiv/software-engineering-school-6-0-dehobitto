@@ -85,6 +85,13 @@ Wait-Until "elasticsearch health" {
     }
 } $TimeoutSeconds
 
+Wait-Until "kibana ready" {
+    $response = Invoke-RestMethod -Uri "http://localhost:5601/api/status" -TimeoutSec 10
+    if ($response.status.level -notin @("available", "degraded")) {
+        throw "unexpected kibana status $($response.status.level)"
+    }
+} $TimeoutSeconds
+
 Wait-Until "prometheus ready" {
     Invoke-HttpOk "http://localhost:9090/-/ready" | Out-Null
 } $TimeoutSeconds

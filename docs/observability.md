@@ -17,11 +17,14 @@ Subber uses three observability paths:
 | Kafka | Domain events and jobs | localhost:9092 |
 | Redis | Scanner GitHub API cache | localhost:6379 |
 | Log search | Elasticsearch | http://localhost:9200 |
+| Log dashboard/search UI | Kibana | http://localhost:5601 |
 | Log collector | Vector | http://localhost:8686 |
 | Metrics scraper | Prometheus | http://localhost:9090 |
 | Metrics dashboards | Grafana | http://localhost:3000 |
 
 Prometheus scrapes all three services. Grafana is provisioned with a Prometheus datasource and the `Subber Overview` dashboard.
+
+Kibana is included for log inspection against Elasticsearch. The restored dashboard artifact is stored at [deployments/docker/kibana/dashboards.ndjson](../deployments/docker/kibana/dashboards.ndjson) and is mounted into the Kibana container at `/usr/share/kibana/dashboards/subber-dashboard.ndjson`.
 
 ## Run
 
@@ -84,6 +87,7 @@ Runtime smoke should verify:
 * Redis is available for scanner cache;
 * migrations run;
 * Vector starts and accepts logs by default.
+* Kibana is ready for Elasticsearch log inspection.
 * Prometheus is ready and sees all three service targets as `up`.
 * Grafana is ready, has the Prometheus datasource, and loads the `Subber Overview` dashboard.
 

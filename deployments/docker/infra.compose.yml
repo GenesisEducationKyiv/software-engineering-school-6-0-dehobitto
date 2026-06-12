@@ -105,6 +105,18 @@ services:
     ports:
       - "9200:9200"
 
+  kibana:
+    image: docker.elastic.co/kibana/kibana:9.2.2
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      XPACK_SECURITY_ENABLED: "false"
+    volumes:
+      - ./kibana/dashboards.ndjson:/usr/share/kibana/dashboards/subber-dashboard.ndjson:ro
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+
   vector:
     image: timberio/vector:0.49.0-alpine
     volumes:
