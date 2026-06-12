@@ -1,8 +1,10 @@
 ## ADR-003: Select log transport mechanism between application and Logstash
 
-**Status:** Accepted  
+**Status:** Superseded  
 **Date:** 2026-05-30  
 **Author:** Oleksandr Makarov
+
+> Superseded on 2026-06-10. The RabbitMQ-based log transport remains documented here as historical context. The target architecture uses best-effort Vector sidecar log shipping instead of brokered log transport. The replacement decision is documented in ADR-007.
 
 ## Context
 

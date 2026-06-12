@@ -1,0 +1,180 @@
+asyncapi: 3.0.0
+info:
+  title: Subber Kafka Contracts
+  version: 1.0.0
+channels:
+  watchlistEvents:
+    address: subber.watchlist.events
+    messages:
+      RepoWatchStartRequested:
+        $ref: '#/components/messages/RepoWatchStartRequested'
+      RepoWatchStopRequested:
+        $ref: '#/components/messages/RepoWatchStopRequested'
+  releaseEvents:
+    address: subber.release.events
+    messages:
+      ReleaseDetected:
+        $ref: '#/components/messages/ReleaseDetected'
+  notificationCommands:
+    address: subber.notification.commands
+    messages:
+      NotificationSendRequested:
+        $ref: '#/components/messages/NotificationSendRequested'
+  notificationRetry1m:
+    address: subber.notification.retry.1m
+    messages:
+      NotificationSendRequested:
+        $ref: '#/components/messages/NotificationSendRequested'
+  notificationRetry10m:
+    address: subber.notification.retry.10m
+    messages:
+      NotificationSendRequested:
+        $ref: '#/components/messages/NotificationSendRequested'
+  notificationDLQ:
+    address: subber.notification.dlq
+    messages:
+      NotificationSendRequested:
+        $ref: '#/components/messages/NotificationSendRequested'
+operations:
+  publishWatchlistEvents:
+    action: send
+    channel:
+      $ref: '#/channels/watchlistEvents'
+  consumeWatchlistEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/watchlistEvents'
+  publishReleaseEvents:
+    action: send
+    channel:
+      $ref: '#/channels/releaseEvents'
+  consumeReleaseEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/releaseEvents'
+  publishNotificationCommands:
+    action: send
+    channel:
+      $ref: '#/channels/notificationCommands'
+  consumeNotificationCommands:
+    action: receive
+    channel:
+      $ref: '#/channels/notificationCommands'
+components:
+  messages:
+    RepoWatchStartRequested:
+      name: RepoWatchStartRequested
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/RepoWatchEnvelope'
+    RepoWatchStopRequested:
+      name: RepoWatchStopRequested
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/RepoWatchEnvelope'
+    ReleaseDetected:
+      name: ReleaseDetected
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/ReleaseDetectedEnvelope'
+    NotificationSendRequested:
+      name: NotificationSendRequested
+      x-kafka-key: email_hash
+      payload:
+        $ref: '#/components/schemas/NotificationSendRequestedEnvelope'
+  schemas:
+    EnvelopeBase:
+      type: object
+      required:
+        - event_id
+        - event_type
+        - occurred_at
+        - source
+        - correlation_id
+        - payload
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        source:
+          type: string
+        correlation_id:
+          type: string
+          format: uuid
+    RepoWatchEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            payload:
+              $ref: '#/components/schemas/RepoWatchPayload'
+    ReleaseDetectedEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            payload:
+              $ref: '#/components/schemas/ReleaseDetectedPayload'
+    NotificationSendRequestedEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            payload:
+              $ref: '#/components/schemas/NotificationSendRequestedPayload'
+    RepoWatchPayload:
+      type: object
+      required:
+        - repo
+      properties:
+        repo:
+          type: string
+          example: gin-gonic/gin
+    ReleaseDetectedPayload:
+      type: object
+      required:
+        - repo
+        - tag
+      properties:
+        repo:
+          type: string
+          example: gin-gonic/gin
+        tag:
+          type: string
+          example: v1.11.0
+    NotificationSendRequestedPayload:
+      type: object
+      required:
+        - notification_id
+        - idempotency_key
+        - recipient_email
+        - email_hash
+        - repo
+        - tag
+        - message
+      properties:
+        notification_id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+          example: gin-gonic/gin:v1.11.0:ab12cd34ef56
+        recipient_email:
+          type: string
+          format: email
+        email_hash:
+          type: string
+          example: ab12cd34ef56
+        repo:
+          type: string
+          example: gin-gonic/gin
+        tag:
+          type: string
+          example: v1.11.0
+        message:
+          type: string

@@ -1,120 +1,104 @@
 # Logging
 
-Subber uses structured JSON logs and ships them through a brokered pipeline to Elasticsearch for search and Kibana dashboards.
+Subber services write structured JSON logs to stdout. Log delivery is best-effort: business data and domain events must not depend on the log pipeline.
 
-## Stack
+## Target Pipeline
 
 ```text
-Subber JSON logs
-  -> async Logrus RabbitMQ hook
-  -> RabbitMQ queue logs
-  -> Logstash RabbitMQ input
-  -> Elasticsearch index subber-logs-YYYY.MM.dd
-  -> Kibana
+service stdout
+  -> container logs
+  -> async Vector sidecar push
+  -> Vector HTTP input
+  -> Vector Elasticsearch batch buffer
+  -> Elasticsearch
 ```
 
-RabbitMQ provides buffering between the application and Logstash. If Logstash is down or slow, log entries can accumulate in RabbitMQ instead of coupling application request handling to Logstash availability.
+Kafka, RabbitMQ, and Logstash are not used for log transport in the target microservice architecture.
+
+## Service Behavior
+
+Each service uses the shared `pkg/logger` package.
+
+Default behavior:
+
+* `LOG_LEVEL=info`
+* logs are written to stdout as JSON;
+* `LOG_SIDECAR_ENABLED=true`;
+* `LOG_SIDECAR_URL=http://vector:8686`;
+* `LOG_FILE=` and file duplication is disabled.
+
+Vector push can be disabled explicitly:
+
+* set `LOG_SIDECAR_ENABLED=false`;
+* the service still writes to stdout.
+
+Optional file duplication:
+
+* set `LOG_FILE=/path/to/service.log`;
+* the file is opened with `0600` permissions;
+* this is not enabled by default.
+
+If Vector is unavailable, the application should keep serving business traffic. Losing logs is acceptable; losing subscription, scan, or notification data is not.
 
 ## Format
 
-Every application log entry is a single JSON object.
+Every log entry is a JSON object.
 
 Common fields:
 
 | Field | Description |
 | --- | --- |
-| `time` | event timestamp |
-| `level` | log level, for example `info`, `warning`, `error` |
-| `msg` | event message |
-| `component` | application component, for example `http`, `handler`, `service`, `github`, `scanner`, `notifier` |
-| `request_id` | correlation id for HTTP request workflows |
-| `scan_cycle_id` | correlation id for background scanner workflows |
+| `time` | Event timestamp |
+| `level` | Log level |
+| `msg` | Event message |
+| `service` | Service name, for example `subscription-api`, `scanner-service`, `notification-service` |
+| `component` | Component name, for example `handler`, `service`, `github`, `delivery` |
+| `request_id` | HTTP request correlation id |
+| `correlation_id` | Event workflow correlation id |
 | `repo` | GitHub repository name |
-| `error` | error message when an operation fails |
-
-HTTP request log fields:
-
-| Field | Description |
-| --- | --- |
-| `method` | HTTP method |
-| `route` | Gin route template, for example `/api/confirm/:token` |
-| `status_code` | HTTP response status |
-| `duration_ms` | request duration in milliseconds |
-| `has_query` | whether a query string was present |
-| `user_agent` | request user agent |
-| `client_ip_hash` | hashed client IP |
+| `error` | Error message |
 
 PII-safe fields:
 
 | Field | Description |
 | --- | --- |
-| `email_hash` | stable hash of email for correlation without raw email |
-| `client_ip_hash` | stable hash of IP for correlation without raw IP |
+| `email_hash` | Stable hash of email for correlation without raw email |
+| `client_ip_hash` | Stable hash of IP for correlation without raw IP |
 
 ## Sensitive Data Rules
 
 Never log:
 
-- credentials;
-- API keys;
-- GitHub tokens;
-- SMTP passwords;
-- confirmation tokens;
-- unsubscribe tokens;
-- raw request bodies;
-- raw query strings;
-- raw email addresses;
-- raw client IP addresses.
+* credentials;
+* API keys;
+* GitHub tokens;
+* SMTP passwords;
+* confirmation tokens;
+* unsubscribe tokens;
+* raw request bodies;
+* raw query strings;
+* raw email addresses;
+* raw client IP addresses.
 
-Tokens can appear in user-facing URLs, but logs must use route templates like `/api/confirm/:token`, not raw paths.
+Tokens can appear in user-facing URLs, but logs should use route templates like `/api/confirm/:token`, not raw paths.
 
 ## Correlation
 
 HTTP requests use `X-Request-ID`.
 
-Flow:
+Event workflows use `correlation_id` from the Kafka envelope. `subscription-api` preserves the correlation id when expanding `ReleaseDetected` into `NotificationSendRequested` commands.
 
-1. If the request has `X-Request-ID`, Subber validates and reuses it.
-2. If it is missing or unsafe, Subber generates a new UUID.
-3. The id is written to the response header.
-4. The id is stored in `context.Context`.
-5. Downstream handler/service/GitHub logs use the same `request_id`.
-6. Confirmation notification jobs created from HTTP requests carry the originating `request_id`.
+## Vector
 
-Background scanner work is not attached to an HTTP request. It uses `scan_cycle_id`, generated once per scanner cycle and propagated to scanner/notifier logs.
+Vector is configured in [deployments/docker/vector/vector.yaml](../deployments/docker/vector/vector.yaml).
 
-## RabbitMQ Topology
+The local compose stack runs Vector as a separate container. Services push logs to it by default, and the push can be disabled with `LOG_SIDECAR_ENABLED=false`.
 
-The application declares:
+Vector sends logs to Elasticsearch in batches. The local configuration flushes when either:
 
-- queue `logs`;
-- direct dead-letter exchange `logs.dlx`;
-- dead-letter queue `logs.dead`.
+* the batch reaches `524288` bytes, approximately `0.5MB`;
+* or `5s` passes since the previous flush.
 
-Messages are persistent. The main queue is durable. Logstash consumes `logs` with acknowledgements enabled.
+## Legacy Path
 
-If the async in-process logging buffer is full, Subber drops the log entry and increments `log_entries_dropped_total`. Dropping logs is preferred over unbounded memory growth or blocking application requests indefinitely.
-
-## Monitoring
-
-Application logging counters:
-
-- `log_entries_enqueued_total`;
-- `log_entries_dropped_total`;
-- `log_entries_published_total`;
-- `log_publish_errors_total`.
-
-RabbitMQ queue alerts:
-
-- `SubberLogDeadLetterQueueNotEmpty` fires when `logs.dead` has ready messages;
-- `SubberLogQueueBacklog` fires when `logs` has more than 1000 ready messages for 5 minutes.
-
-## Retention
-
-Elasticsearch setup applies:
-
-- ILM policy: `subber-logs-7d`;
-- index template: `subber-logs-template`;
-- index pattern: `subber-logs-*`.
-
-Subber log indices are retained for 7 days in the local stack.
+The old RabbitMQ/Logstash log transport is historical. It is superseded by ADR-007 and is not part of the target microservice deployment.

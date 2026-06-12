@@ -6,7 +6,7 @@ COPY tests/e2e/package.json tests/e2e/package-lock.json ./
 RUN npm ci
 
 COPY tests/e2e/ ./
-COPY internal/static/ ./static/
+COPY services/subscription-api/static/ ./static/
 
 ENV STATIC_DIR=./static
 ENV CI=true

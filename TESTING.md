@@ -1,62 +1,73 @@
 # Testing
 
-Prerequisites: **git**, **docker**, **Go**.
-
-## Run All Tests
-
-**Linux / macOS / Git Bash:**
-```sh
-sh scripts/test.sh
-```
-
-**Windows (PowerShell):**
-```sh
-.\scripts\test.ps1
-```
-
----
+Prerequisites: **Go**, **Docker**, and Docker Compose `2.20.3` or newer.
 
 ## Unit Tests
 
-No external dependencies.
-
 ```sh
-go test ./...
+go test ./pkg/... ./services/subscription-api/... ./services/scanner-service/... ./services/notification-service/...
 ```
 
 ## Integration Tests
 
-PostgreSQL spins up automatically via Docker (testcontainers). Docker must be running.
+PostgreSQL spins up automatically through testcontainers. Docker must be running.
 
 ```sh
-go test -tags integration ./tests/integration/...
+go test -tags integration ./tests/integration/... ./services/subscription-api/...
 ```
 
-## E2E Tests
-
-The E2E suite launches a complete test environment: frontend, real backend, PostgreSQL, Redis, and a fake GitHub API. API calls are not mocked in the browser.
+## Compose Validation
 
 ```sh
-docker compose -f docker-compose.yml -f docker/docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from e2e e2e
-docker compose -f docker-compose.yml -f docker/docker-compose.e2e.yml down -v
+docker compose -f compose.microservices.yml config --quiet
 ```
 
-## Observability Smoke Test
+## Runtime Smoke
 
-Requires the full Docker Compose observability stack to be running:
+Runtime smoke validates that the local stack is alive: service endpoints, metrics endpoints, Prometheus targets, Grafana provisioning, Kafka topics, Mailpit, Elasticsearch, and Vector log indexing.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/runtime-smoke.ps1
+```
+
+or:
 
 ```sh
-docker compose -f docker-compose.yml -f docker/docker-compose.logging.yml -f docker/docker-compose.observability.yml up --build -d
+sh scripts/runtime-smoke.sh
 ```
 
-Then run:
+Start the stack from the smoke script when needed:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/runtime-smoke.ps1 -StartStack -Build
+```
+
+or:
 
 ```sh
-# Linux / macOS / Git Bash
-sh scripts/observability-smoke.sh
-
-# Windows PowerShell
-.\scripts\observability-smoke.ps1
+START_STACK=true BUILD=true sh scripts/runtime-smoke.sh
 ```
 
-The smoke test checks app metrics, Prometheus target/rules, Grafana health, Kibana health, Elasticsearch ILM setup, one request metric in Prometheus, and the matching request log in Elasticsearch.
+## Kafka E2E
+
+Kafka E2E verifies the business flow through the message bus:
+
+```text
+subscribe
+-> confirm
+-> RepoWatchStartRequested
+-> scanner watchlist
+-> ReleaseDetected
+-> NotificationSendRequested
+-> notification-service sent delivery
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/kafka-e2e.ps1
+```
+
+or:
+
+```sh
+sh scripts/kafka-e2e.sh
+```

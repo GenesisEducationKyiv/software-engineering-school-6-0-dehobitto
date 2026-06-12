@@ -1,0 +1,32 @@
+services:
+  scanner-service:
+    build:
+      context: ../..
+      dockerfile: services/scanner-service/Dockerfile
+    env_file:
+      - ../../deployments/docker/env/common.env.example
+      - .env.example
+    ports:
+      - "8081:8081"
+    depends_on:
+      kafka-topics-init:
+        condition: service_completed_successfully
+      postgres-scanner:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scanner-service-outbox-relay:
+    build:
+      context: ../..
+      dockerfile: services/scanner-service/Dockerfile
+      args:
+        TARGET: ./services/scanner-service/cmd/outbox-relay
+    env_file:
+      - ../../deployments/docker/env/common.env.example
+      - .env.example
+    depends_on:
+      kafka-topics-init:
+        condition: service_completed_successfully
+      postgres-scanner:
+        condition: service_healthy

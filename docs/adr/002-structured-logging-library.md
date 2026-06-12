@@ -1,6 +1,6 @@
 ## ADR-002: Select structured logging library
 
-**Status:** Accepted  
+**Status:** Accepted; transport updated by ADR-007
 **Date:** 2026-05-30  
 **Author:** Oleksandr Makarov
 
@@ -36,9 +36,9 @@ The decisive factor is that `logrus` is already an indirect dependency in the mo
 
 ## Implementation Details
 
-* **Formatter:** `logrus.JSONFormatter` - outputs one JSON object per line, parseable by Logstash without additional grok patterns.
+* **Formatter:** `logrus.JSONFormatter` - outputs one JSON object per line for stdout, optional file duplication, and Vector ingestion.
 * **Output:** `os.Stdout` by default; optional `LOG_FILE` appends to a local file opened with `0600` permissions.
-* **Transport hook:** when `RABBITMQ_URL` is configured, logrus uses an asynchronous RabbitMQ hook to publish structured log entries into the logging pipeline.
+* **Transport:** services push logs to Vector by default through the shared logger setup described in ADR-007. RabbitMQ and Logstash are not used in the target architecture.
 * **Logger initialisation:** the global logrus instance is configured once in `main`; a small project-local `logger.Logger` interface is then injected into handlers, services, workers, middleware, and infrastructure clients.
 * **Context propagation:** components receive a logger pre-enriched with their `component` field at construction time. Request-scoped code adds `request_id` from `context.Context`; notification jobs carry the originating `request_id` when they are created from an HTTP request. Background scanner work uses `scan_cycle_id` for correlation.
 * **PII handling:** raw email addresses and client IPs are not written to logs. Email and IP values are converted to stable SHA-256 based short hashes for correlation. Request tokens and raw query strings are not logged.
@@ -48,7 +48,7 @@ The decisive factor is that `logrus` is already an indirect dependency in the mo
 
 ### Positives
 
-* Every log line is a valid JSON object - Logstash can forward it to Elasticsearch with zero transformation.
+* Every log line is a valid JSON object, so Vector can forward it to Elasticsearch without custom parsing.
 * Fields like `level`, `component`, `request_id`, `email_hash`, `repo`, `route`, `status_code`, and `error` become first-class queryable attributes in Kibana.
 * Contextual loggers eliminate repeated field specification across a worker's lifetime and make unit tests independent from global logger state.
 * No new module dependency introduced.

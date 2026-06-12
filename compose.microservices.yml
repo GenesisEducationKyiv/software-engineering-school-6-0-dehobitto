@@ -1,0 +1,5 @@
+include:
+  - deployments/docker/infra.compose.yml
+  - services/subscription-api/compose.yml
+  - services/scanner-service/compose.yml
+  - services/notification-service/compose.yml
