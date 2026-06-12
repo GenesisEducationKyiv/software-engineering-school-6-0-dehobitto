@@ -181,6 +181,20 @@ Kafka E2E verifies the business chain through the message bus: subscribe, confir
 
 Mailpit UI is available at http://localhost:8025 for local confirmation and release emails.
 
+## Load Test
+
+```bash
+k6 run scripts/loadtest.js
+```
+
+The load test targets `http://localhost:8080` by default and exercises subscribe, list subscriptions, confirm, and unsubscribe paths. Override the target or API key when needed:
+
+```bash
+BASE_URL=http://localhost:8080 API_KEY=dev-api-key k6 run scripts/loadtest.js
+```
+
+Keep the microservice stack running while the load test executes. Prometheus and Grafana can be used to inspect service metrics during the run.
+
 ## Legacy Cleanup
 
 The old monolith entrypoint and root `internal/` packages have been removed from the target codebase. Runtime work now lives under `services/`, shared infrastructure under `pkg/`, and API contracts under `api/`.

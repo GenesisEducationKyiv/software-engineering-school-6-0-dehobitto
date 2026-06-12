@@ -71,3 +71,25 @@ or:
 ```sh
 sh scripts/kafka-e2e.sh
 ```
+
+## Load Test
+
+The load test uses `k6` and targets the running subscription API.
+
+```powershell
+k6 run scripts/loadtest.js
+```
+
+Override the target URL or API key when needed:
+
+```powershell
+$env:BASE_URL = "http://localhost:8080"
+$env:API_KEY = "dev-api-key"
+k6 run scripts/loadtest.js
+```
+
+or:
+
+```sh
+BASE_URL=http://localhost:8080 API_KEY=dev-api-key k6 run scripts/loadtest.js
+```
