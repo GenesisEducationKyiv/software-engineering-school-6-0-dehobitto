@@ -2,3 +2,4 @@
 **/.env
 .idea/
 /docs/superpowers/
+/technical-debt.local.md

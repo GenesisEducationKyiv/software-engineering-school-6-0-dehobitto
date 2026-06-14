@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"subber/pkg/contracts"
@@ -17,6 +18,10 @@ import (
 
 type Repository struct {
 	pool *pgxpool.Pool
+}
+
+type subscriptionExecer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
 func NewRepository(pool *pgxpool.Pool) *Repository {
@@ -34,6 +39,10 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 	last_seen_tag VARCHAR(100),
 	UNIQUE (email, repo)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_token
+	ON subscriptions (token)
+	WHERE token IS NOT NULL;
 `)
 	if err != nil {
 		return fmt.Errorf("migrate subscription schema: %w", err)
@@ -51,7 +60,27 @@ func (r *Repository) SubscriptionExists(ctx context.Context, email, repo string)
 }
 
 func (r *Repository) SaveSubscription(ctx context.Context, sub Subscription) error {
-	_, err := r.pool.Exec(ctx, `
+	return saveSubscription(ctx, r.pool, sub)
+}
+
+func (r *Repository) SaveSubscriptionWithConfirmation(ctx context.Context, sub Subscription, publisher NotificationPublisher) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin subscription confirmation: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if err := saveSubscription(ctx, tx, sub); err != nil {
+		return err
+	}
+	if err := publisher.PublishConfirmationTx(ctx, tx, sub.Email, sub.Repo, sub.Token); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func saveSubscription(ctx context.Context, execer subscriptionExecer, sub Subscription) error {
+	_, err := execer.Exec(ctx, `
 INSERT INTO subscriptions (email, repo, confirmed, last_seen_tag, token)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (email, repo) DO UPDATE

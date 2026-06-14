@@ -110,12 +110,32 @@ services:
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
       XPACK_SECURITY_ENABLED: "false"
-    volumes:
-      - ./kibana/dashboards.ndjson:/usr/share/kibana/dashboards/subber-dashboard.ndjson:ro
     ports:
       - "5601:5601"
     depends_on:
       - elasticsearch
+
+  kibana-import:
+    image: curlimages/curl:8.11.1
+    volumes:
+      - ./kibana/dashboards.ndjson:/tmp/dashboards.ndjson:ro
+    depends_on:
+      kibana:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        for attempt in $$(seq 1 60); do
+          if curl -sf -X POST "http://kibana:5601/api/saved_objects/_import?overwrite=true" \
+            -H "kbn-xsrf: true" \
+            --form file=@/tmp/dashboards.ndjson >/tmp/kibana-import.json \
+            && curl -sf "http://kibana:5601/api/saved_objects/dashboard/subber-main-dashboard" >/dev/null; then
+            exit 0
+          fi
+          echo "waiting for kibana import API ($$attempt/60)"
+          sleep 2
+        done
+        exit 1
 
   vector:
     image: timberio/vector:0.49.0-alpine

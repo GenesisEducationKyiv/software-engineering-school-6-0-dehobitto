@@ -1,0 +1,60 @@
+services:
+  wiremock:
+    image: wiremock/wiremock:3.9.1
+    volumes:
+      - ./tests/e2e/wiremock:/home/wiremock:ro
+    command: ["--global-response-templating"]
+
+  subscription-api:
+    environment:
+      API_KEY: test-key
+      GITHUB_BASE_URL: http://wiremock:8080
+      LOG_SIDECAR_ENABLED: "false"
+    depends_on:
+      wiremock:
+        condition: service_started
+
+  scanner-service:
+    environment:
+      GITHUB_BASE_URL: http://wiremock:8080
+      LOG_SIDECAR_ENABLED: "false"
+    depends_on:
+      wiremock:
+        condition: service_started
+
+  notification-service:
+    environment:
+      LOG_SIDECAR_ENABLED: "false"
+
+  subscription-api-outbox-relay:
+    environment:
+      API_KEY: test-key
+      GITHUB_BASE_URL: http://wiremock:8080
+      LOG_SIDECAR_ENABLED: "false"
+
+  scanner-service-outbox-relay:
+    environment:
+      GITHUB_BASE_URL: http://wiremock:8080
+      LOG_SIDECAR_ENABLED: "false"
+
+  notification-service-outbox-relay:
+    environment:
+      LOG_SIDECAR_ENABLED: "false"
+
+  e2e:
+    build:
+      context: .
+      dockerfile: tests/e2e/Dockerfile
+    environment:
+      APP_URL: http://subscription-api:8080
+      API_KEY: test-key
+      CI: "true"
+    depends_on:
+      subscription-api:
+        condition: service_started
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        node -e "const http=require('http');let tries=0;(function wait(){http.get('http://subscription-api:8080/',res=>{res.resume();process.exit(0)}).on('error',()=>{if(++tries>60)process.exit(1);setTimeout(wait,2000)})})()"
+        npx playwright test

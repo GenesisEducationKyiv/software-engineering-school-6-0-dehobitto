@@ -91,6 +91,24 @@ func TestSubscribe_RejectsInvalidRepoBeforeService(t *testing.T) {
 	}
 }
 
+func TestSubscribe_RejectsInvalidEmailBeforeService(t *testing.T) {
+	creator := &fakeSubscriptionCreator{}
+	router := newTestRouter("secret", &fakeSubscriptionReader{}, creator)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscribe", bytes.NewBufferString(`{"email":"bad-email","repo":"owner/repo"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "secret")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", res.Code)
+	}
+	if creator.called {
+		t.Fatal("service should not be called for invalid email")
+	}
+}
+
 func TestSubscribe_MapsServiceErrorsToHTTPStatus(t *testing.T) {
 	body := `{"email":"user@example.com","repo":"owner/repo"}`
 	tests := []struct {

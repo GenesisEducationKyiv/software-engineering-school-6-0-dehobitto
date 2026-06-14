@@ -52,7 +52,12 @@ check_elastic() {
 }
 
 check_kibana_ready() {
-  curl -fsS "http://localhost:5601/api/status" | grep -Eq '"level":"(available|degraded)"'
+  curl -fsS "http://localhost:5601/api/status" | grep -Eq '"overall":\{"level":"(available|degraded)"'
+}
+
+check_kibana_dashboard() {
+  curl -fsS "http://localhost:5601/api/saved_objects/dashboard/subber-main-dashboard" |
+    grep -q '"title":"Main dashboard"'
 }
 
 check_prometheus_ready() {
@@ -117,6 +122,7 @@ wait_until "notification-service metrics" check_url "http://localhost:8082/metri
 wait_until "mailpit api" check_url "http://localhost:8025/api/v1/messages"
 wait_until "elasticsearch health" check_elastic
 wait_until "kibana ready" check_kibana_ready
+wait_until "kibana subber dashboard" check_kibana_dashboard
 wait_until "prometheus ready" check_prometheus_ready
 wait_until "prometheus service targets" check_prometheus_targets
 wait_until "grafana ready" check_grafana_ready

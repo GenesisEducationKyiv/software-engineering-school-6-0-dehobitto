@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"subber/pkg/contracts"
@@ -31,6 +32,13 @@ func (p *OutboxNotificationPublisher) PublishConfirmation(ctx context.Context, e
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	if err := p.PublishConfirmationTx(ctx, tx, email, repo, token); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *OutboxNotificationPublisher) PublishConfirmationTx(ctx context.Context, tx pgx.Tx, email, repo, token string) error {
 	notificationID := uuid.NewString()
 	correlationID := correlationIDFromRequest(ctx, notificationID)
 	event, raw, err := buildConfirmationNotification(p.baseURL, email, repo, token, notificationID, correlationID, time.Now().UTC())
@@ -49,7 +57,7 @@ func (p *OutboxNotificationPublisher) PublishConfirmation(ctx context.Context, e
 	}); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func (p *OutboxNotificationPublisher) PublishReleaseNotification(ctx context.Context, email, repo, tag, correlationID string) error {

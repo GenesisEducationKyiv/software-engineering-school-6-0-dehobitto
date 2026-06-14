@@ -87,8 +87,16 @@ Wait-Until "elasticsearch health" {
 
 Wait-Until "kibana ready" {
     $response = Invoke-RestMethod -Uri "http://localhost:5601/api/status" -TimeoutSec 10
-    if ($response.status.level -notin @("available", "degraded")) {
-        throw "unexpected kibana status $($response.status.level)"
+    $level = $response.status.overall.level
+    if ($level -notin @("available", "degraded")) {
+        throw "unexpected kibana status $level"
+    }
+} $TimeoutSeconds
+
+Wait-Until "kibana subber dashboard" {
+    $response = Invoke-RestMethod -Uri "http://localhost:5601/api/saved_objects/dashboard/subber-main-dashboard" -TimeoutSec 10
+    if ($response.attributes.title -ne "Main dashboard") {
+        throw "subber dashboard not imported"
     }
 } $TimeoutSeconds
 

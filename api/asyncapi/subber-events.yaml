@@ -149,13 +149,13 @@ components:
           example: v1.11.0
     NotificationSendRequestedPayload:
       type: object
+      description: Notification command payload. Confirmation notifications omit tag; release notifications include tag.
       required:
         - notification_id
         - idempotency_key
         - recipient_email
         - email_hash
         - repo
-        - tag
         - message
       properties:
         notification_id:
@@ -172,9 +172,12 @@ components:
           example: ab12cd34ef56
         repo:
           type: string
+          description: Repository related to the notification.
           example: gin-gonic/gin
         tag:
           type: string
+          description: Release tag for release notifications; omitted for confirmation notifications.
           example: v1.11.0
         message:
           type: string
+          description: User-facing email message body.

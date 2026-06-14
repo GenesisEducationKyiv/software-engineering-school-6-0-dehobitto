@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"golang.org/x/sync/errgroup"
 
 	"subber/pkg/contracts"
@@ -39,9 +40,17 @@ func run() error {
 	defer cleanupLogs()
 
 	metricRegistry := prometheus.NewRegistry()
+	subscribeRequests := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "subber_subscription_requests_total",
+			Help: "Total subscription requests by result.",
+		},
+		[]string{"result"},
+	)
 	metricRegistry.MustRegister(
-		prometheus.NewGoCollector(),
-		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		subscribeRequests,
 	)
 	log := logger.New().WithField("service", "subscription-api")
 
@@ -67,11 +76,12 @@ func run() error {
 	releaseExpander := subscription.NewReleaseExpander(repo, notificationPublisher)
 
 	router := httpapi.SetupRouter(httpapi.RouterDeps{
-		APIKey:   cfg.APIKey,
-		Repo:     repo,
-		Service:  svc,
-		Logger:   log,
-		Gatherer: metricRegistry,
+		APIKey:            cfg.APIKey,
+		Repo:              repo,
+		Service:           svc,
+		Logger:            log,
+		Gatherer:          metricRegistry,
+		SubscribeRequests: subscribeRequests,
 	})
 	srv := &http.Server{
 		Addr:              ":" + cfg.ServerPort,

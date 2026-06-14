@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"subber/pkg/logger"
 )
@@ -18,12 +19,12 @@ var (
 )
 
 type NotificationPublisher interface {
-	PublishConfirmation(ctx context.Context, email, repo, token string) error
+	PublishConfirmationTx(ctx context.Context, tx pgx.Tx, email, repo, token string) error
 }
 
 type Store interface {
 	SubscriptionExists(ctx context.Context, email, repo string) (bool, error)
-	SaveSubscription(ctx context.Context, sub Subscription) error
+	SaveSubscriptionWithConfirmation(ctx context.Context, sub Subscription, publisher NotificationPublisher) error
 }
 
 type Service struct {
@@ -65,10 +66,7 @@ func (s *Service) Subscribe(ctx context.Context, email, repo string) error {
 		Token:       uuid.NewString(),
 		Confirmed:   false,
 	}
-	if err := s.repo.SaveSubscription(ctx, sub); err != nil {
-		return fmt.Errorf("save subscription: %w", err)
-	}
-	return s.notifications.PublishConfirmation(ctx, sub.Email, sub.Repo, sub.Token)
+	return s.repo.SaveSubscriptionWithConfirmation(ctx, sub, s.notifications)
 }
 
 func (s *Service) validateRepo(ctx context.Context, repo string) error {

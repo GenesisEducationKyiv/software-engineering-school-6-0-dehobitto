@@ -3,11 +3,16 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"subber/pkg/contracts"
+	"subber/services/subscription-api/internal/subscription"
 )
 
 func TestSubscribe_SuccessPersistsUnconfirmedAndWritesConfirmationOutbox(t *testing.T) {
@@ -29,6 +34,31 @@ func TestSubscribe_SuccessPersistsUnconfirmedAndWritesConfirmationOutbox(t *test
 	}
 }
 
+func TestSaveSubscriptionWithConfirmation_RollsBackWhenOutboxFails(t *testing.T) {
+	env := newTestEnv(t, gitHubFake{})
+	repo := subscription.NewRepository(env.pool)
+
+	err := repo.SaveSubscriptionWithConfirmation(
+		context.Background(),
+		subscription.Subscription{
+			Email:       "rollback@example.com",
+			Repo:        "owner/repo",
+			LastSeenTag: "v1.0.0",
+			Token:       "00000000-0000-0000-0000-000000000001",
+		},
+		failingConfirmationPublisher{},
+	)
+	if err == nil {
+		t.Fatal("expected outbox error, got nil")
+	}
+	if subscriptionExists(t, "rollback@example.com", "owner/repo") {
+		t.Fatal("subscription must roll back when confirmation outbox insert fails")
+	}
+	if notificationCommandCount(t) != 0 {
+		t.Fatalf("notification commands = %d, want 0", notificationCommandCount(t))
+	}
+}
+
 func TestSubscribe_DuplicateAndRepoValidation(t *testing.T) {
 	env := newTestEnv(t, gitHubFake{})
 
@@ -46,6 +76,12 @@ func TestSubscribe_DuplicateAndRepoValidation(t *testing.T) {
 	if subscriptionExists(t, "user@example.com", "owner/missing") {
 		t.Fatal("subscription must not be saved when GitHub rejects repo")
 	}
+}
+
+type failingConfirmationPublisher struct{}
+
+func (failingConfirmationPublisher) PublishConfirmationTx(context.Context, pgx.Tx, string, string, string) error {
+	return errors.New("outbox down")
 }
 
 func TestSubscribe_WithoutAPIKeyReturnsUnauthorized(t *testing.T) {

@@ -22,11 +22,12 @@ var (
 )
 
 type RouterDeps struct {
-	APIKey   string
-	Repo     SubscriptionReader
-	Service  SubscriptionCreator
-	Logger   logger.Logger
-	Gatherer prometheus.Gatherer
+	APIKey            string
+	Repo              SubscriptionReader
+	Service           SubscriptionCreator
+	Logger            logger.Logger
+	Gatherer          prometheus.Gatherer
+	SubscribeRequests *prometheus.CounterVec
 }
 
 type SubscriptionReader interface {
@@ -58,7 +59,12 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 		c.File("./static/index.html")
 	})
 
-	h := handler{repo: deps.Repo, service: deps.Service, log: log.WithField("component", "handler")}
+	h := handler{
+		repo:              deps.Repo,
+		service:           deps.Service,
+		log:               log.WithField("component", "handler"),
+		subscribeRequests: deps.SubscribeRequests,
+	}
 	api := r.Group("/api")
 	api.GET("/confirm/:token", h.confirm)
 	api.GET("/unsubscribe/:token", h.unsubscribe)
@@ -72,39 +78,59 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 }
 
 type handler struct {
-	repo    SubscriptionReader
-	service SubscriptionCreator
-	log     logger.Logger
+	repo              SubscriptionReader
+	service           SubscriptionCreator
+	log               logger.Logger
+	subscribeRequests *prometheus.CounterVec
 }
 
 func (h handler) subscribe(c *gin.Context) {
 	var input subscription.Subscription
 	if err := c.ShouldBindJSON(&input); err != nil {
+		h.observeSubscribe("invalid_json")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
+	if !emailPattern.MatchString(input.Email) {
+		h.observeSubscribe("invalid_email")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid email"})
+		return
+	}
 	if !repoPattern.MatchString(input.Repo) {
+		h.observeSubscribe("invalid_repo")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid repository format"})
 		return
 	}
 
 	err := h.service.Subscribe(c.Request.Context(), input.Email, input.Repo)
 	if err == nil {
+		h.observeSubscribe("success")
 		c.JSON(http.StatusOK, gin.H{"success": "Subscription successful. Confirmation email sent."})
 		return
 	}
 	switch {
 	case errors.Is(err, subscription.ErrAlreadySubscribed):
+		h.observeSubscribe("already_subscribed")
 		c.JSON(http.StatusConflict, gin.H{"error": "Email already subscribed to this repository"})
 	case errors.Is(err, subscription.ErrRepoNotFound):
+		h.observeSubscribe("repo_not_found")
 		c.JSON(http.StatusNotFound, gin.H{"error": "Repository not found on GitHub"})
 	case errors.Is(err, subscription.ErrGitHubRateLimit):
+		h.observeSubscribe("github_rate_limit")
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "GitHub API rate limit exceeded. Try again later."})
 	case errors.Is(err, subscription.ErrGitHubUnavailable):
+		h.observeSubscribe("github_unavailable")
 		c.JSON(http.StatusBadGateway, gin.H{"error": "External API error"})
 	default:
+		h.observeSubscribe("error")
 		h.log.WithField("repo", input.Repo).WithError(err).Error("subscribe failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+	}
+}
+
+func (h handler) observeSubscribe(result string) {
+	if h.subscribeRequests != nil {
+		h.subscribeRequests.WithLabelValues(result).Inc()
 	}
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type fakeStore struct {
@@ -22,6 +24,13 @@ func (s *fakeStore) SaveSubscription(_ context.Context, sub Subscription) error 
 	s.saveCalled = true
 	s.saved = sub
 	return s.saveErr
+}
+
+func (s *fakeStore) SaveSubscriptionWithConfirmation(ctx context.Context, sub Subscription, publisher NotificationPublisher) error {
+	if err := s.SaveSubscription(ctx, sub); err != nil {
+		return err
+	}
+	return publisher.PublishConfirmationTx(ctx, nil, sub.Email, sub.Repo, sub.Token)
 }
 
 type fakeGitHub struct {
@@ -50,7 +59,7 @@ type fakeNotifications struct {
 	err    error
 }
 
-func (n *fakeNotifications) PublishConfirmation(_ context.Context, email, repo, token string) error {
+func (n *fakeNotifications) PublishConfirmationTx(_ context.Context, _ pgx.Tx, email, repo, token string) error {
 	n.called = true
 	n.email = email
 	n.repo = repo
