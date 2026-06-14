@@ -181,23 +181,3 @@ sh scripts/kafka-e2e.sh
 Kafka E2E verifies the business chain through the message bus: subscribe, confirm, watchlist event consumed by scanner, manual `ReleaseDetected` published to Kafka, release expanded by `subscription-api`, and release notification sent by `notification-service`.
 
 Mailpit UI is available at http://localhost:8025 for local confirmation and release emails.
-
-## Load Test
-
-```bash
-docker run --rm -i \
-  -e BASE_URL=http://host.docker.internal:8080 \
-  -e API_KEY=dev-api-key \
-  -v ${PWD}/scripts:/scripts \
-  grafana/k6 run /scripts/loadtest.js
-```
-
-The load test exercises subscribe, list subscriptions, confirm, and unsubscribe paths.
-
-When `k6` runs in Docker, `host.docker.internal` reaches the API running on the host machine.
-
-Keep the microservice stack running while the load test executes. Prometheus and Grafana can be used to inspect service metrics during the run.
-
-## Legacy Cleanup
-
-The old monolith entrypoint and root `internal/` packages have been removed from the target codebase. Runtime work now lives under `services/`, shared infrastructure under `pkg/`, and API contracts under `api/`.
