@@ -1,100 +1,170 @@
 # SDD Changelog
 
-This file records architecture changes made after the original SDD. The original `docs/SDD.md` is intentionally kept as the baseline document.
+This file describes how the current implementation differs from the baseline design in `docs/SDD.md`.
 
-## 2026-06-12 - Modular Microservice Refactor
+The original SDD is intentionally kept unchanged as the previous architecture snapshot. This changelog records the architectural delta introduced by the microservice refactor.
 
-### Service Boundaries
+## 2026-06-12 - Monolith To Microservices
 
-* Extracted the monolith into three service modules:
-  * `services/subscription-api` owns HTTP API, subscriptions, confirmation/unsubscribe tokens, subscriber source of truth, and release expansion.
-  * `services/scanner-service` owns GitHub release polling, scanner watchlist, scanner-local GitHub cache, and release detection.
-  * `services/notification-service` owns email delivery, delivery state, retries, DLQ handling, and idempotency.
-* Added `go.work` for the root workspace.
-* Added shared `pkg` modules for contracts, logging, metrics, Kafka, outbox, config, request id, and PostgreSQL helpers.
-* Added `api/openapi/subscription-api.yaml` for HTTP API contracts.
-* Added `api/asyncapi/subber-events.yaml` for Kafka event contracts.
+### Architecture Style
 
-### Messaging
+**Before:** the SDD described a single Go monolith with two in-process background workers: Scanner Worker and Notifier Worker.
 
-* Replaced in-process notification jobs with Kafka-based messaging.
-* Added Kafka topics:
-  * `subber.watchlist.events`
-  * `subber.release.events`
-  * `subber.notification.commands`
-  * `subber.notification.retry.1m`
-  * `subber.notification.retry.10m`
-  * `subber.notification.dlq`
-* Added event envelope fields: `event_id`, `event_type`, `occurred_at`, `source`, `correlation_id`, and `payload`.
-* Added Kafka keys:
-  * repo key for watchlist and release events;
-  * email hash key for notification commands.
-* Added transactional outbox relays per service database.
+**Now:** Subber is a modular microservice system with three independently runnable Go services:
+
+| Service | Responsibility |
+| --- | --- |
+| `subscription-api` | HTTP API, subscriptions, confirmation/unsubscribe flow, subscriber source of truth, release expansion |
+| `scanner-service` | GitHub release polling, scanner watchlist, scanner-local cache, release detection |
+| `notification-service` | Email delivery, delivery state, retries, idempotency |
+
+The old in-process boundaries became process boundaries. Shared code that is not domain-specific lives in `pkg`; service-owned code lives inside each service.
+
+### Runtime Modules
+
+**Before:** the application entrypoint was `cmd/api-server`, and most runtime logic lived under root `internal/`.
+
+**Now:** runtime code is split into service modules:
+
+* `services/subscription-api`
+* `services/scanner-service`
+* `services/notification-service`
+* `pkg`
+
+The workspace is coordinated through `go.work`.
+
+### Communication Between Domains
+
+**Before:** the API, scanner, and notifier communicated inside one process. Notification jobs were passed through an in-memory channel.
+
+**Now:** services communicate asynchronously through Kafka. Services do not call each other directly for business workflows.
+
+Current Kafka topics:
+
+| Topic | Purpose |
+| --- | --- |
+| `subber.watchlist.events` | subscription API tells scanner to start/stop watching a repository |
+| `subber.release.events` | scanner publishes detected releases |
+| `subber.notification.commands` | subscription API requests email delivery |
+| `subber.notification.retry.1m` | first delayed notification retry |
+| `subber.notification.retry.10m` | second delayed notification retry |
+| `subber.notification.dlq` | exhausted notification commands |
+
+Messages use an envelope with `event_id`, `event_type`, `occurred_at`, `source`, `correlation_id`, and `payload`.
+
+### Reliability
+
+**Before:** email jobs could be lost if the in-memory notification channel was full or if the process crashed before a worker handled the job.
+
+**Now:** business events and notification commands are written through a transactional outbox and then published to Kafka by outbox relays.
+
+The notifier processes email delivery with at-least-once semantics:
+
+* delivery is protected by idempotency keys;
+* failed sends are retried with limited retry topics;
+* exhausted sends are moved to the notification DLQ.
 
 ### Data Ownership
 
-* Split storage into separate PostgreSQL containers/databases:
-  * `postgres-api` / `subber_api`
-  * `postgres-scanner` / `subber_scanner`
-  * `postgres-notifier` / `subber_notifier`
-* `subscription-api` no longer shares tables with scanner or notifier.
-* `scanner-service` stores its own watchlist with repo scan state.
-* `notification-service` stores delivery/idempotency state.
-* Scanner Redis cache moved into `scanner-service`; it is no longer shared as generic app cache.
+**Before:** the SDD described one PostgreSQL database and one denormalized `subscriptions` table shared by API, scanner, and notifier logic.
 
-### Runtime And Deployment
+**Now:** each service owns its own PostgreSQL database and schema:
 
-* Added root `compose.microservices.yml`.
-* Added service-local Dockerfiles and compose files:
-  * `services/subscription-api/Dockerfile`
-  * `services/subscription-api/compose.yml`
-  * `services/scanner-service/Dockerfile`
-  * `services/scanner-service/compose.yml`
-  * `services/notification-service/Dockerfile`
-  * `services/notification-service/compose.yml`
-* Added `deployments/docker/infra.compose.yml` for infrastructure.
-* Removed old root monolith Dockerfile, old root compose file, and old compose overlays.
-* Removed old monolith entrypoint `cmd/api-server`.
-* Removed old root `internal/` implementation after logic was moved into service modules.
+| Service | Database | Owned data |
+| --- | --- | --- |
+| `subscription-api` | `subber_api` | subscriptions, tokens, subscription outbox |
+| `scanner-service` | `subber_scanner` | scanner watchlist, scan state, scanner outbox |
+| `notification-service` | `subber_notifier` | delivery state, idempotency records, notification outbox |
 
-### Logging And Observability
+Services do not share tables. Cross-service data movement happens through Kafka events.
 
-* Replaced RabbitMQ/Logstash log transport with Vector sidecar log shipping.
-* Kafka is used for domain events/jobs, not logs.
-* Services write structured JSON logs to stdout.
-* Services push logs to Vector by default.
-* Optional file log duplication can be enabled through config, but is disabled by default.
-* Vector batches logs to Elasticsearch by size/time.
-* Restored Kibana as the log dashboard/search UI and moved the dashboard artifact to `deployments/docker/kibana/dashboards.ndjson`.
-* Prometheus scrapes metrics from all three services.
-* Grafana is provisioned with a Prometheus datasource and `Subber Overview` dashboard.
+### Scanner And Cache
+
+**Before:** scanner state and `last_seen_tag` were stored in the shared subscriptions table, and Redis was described as an application-level GitHub API cache.
+
+**Now:** scanner state belongs to `scanner-service`.
+
+The scanner stores only its own watchlist and scan state, claims repositories in configurable batches, and uses Redis as a scanner-local GitHub API cache. If Redis is unavailable, scanner can bypass cache and call GitHub directly.
+
+### Notification Flow
+
+**Before:** Notifier Worker consumed in-memory jobs and sent emails directly. SMTP failures caused dropped messages with no automatic retry.
+
+**Now:** `notification-service` consumes Kafka notification commands, stores delivery state, deduplicates by idempotency key, retries failed sends, and records exhausted commands in DLQ.
+
+### Logging
+
+**Before:** ADR history included RabbitMQ/Logstash as a reliable log transport path.
+
+**Now:** logs are best-effort operational data, not business data.
+
+Services:
+
+* write structured JSON logs to stdout;
+* push logs to Vector by default;
+* can optionally duplicate logs to a file through config, disabled by default.
+
+Vector sends logs to Elasticsearch in batches. Kafka is not used for log transport.
+
+### Observability
+
+**Before:** observability was tied to the monolith and old deployment overlays.
+
+**Now:** the microservice stack includes:
+
+| Tool | Purpose |
+| --- | --- |
+| Prometheus | scrape metrics from all three services |
+| Grafana | metrics dashboard |
+| Elasticsearch | log storage/search |
+| Kibana | log dashboard/search UI |
+| Vector | log collector and Elasticsearch batch sender |
+
+The Kibana dashboard artifact is stored at `deployments/docker/kibana/dashboards.ndjson`.
+
+### Deployment
+
+**Before:** local deployment used the old root Dockerfile and root `docker-compose.yml`.
+
+**Now:** local deployment uses:
+
+* `compose.microservices.yml` as the root compose file;
+* `deployments/docker/infra.compose.yml` for infrastructure;
+* service-local Dockerfiles and compose files under `services/*`.
+
+The stack runs separate containers for each service, each service outbox relay, Kafka, three PostgreSQL databases, Redis, Vector, Elasticsearch, Kibana, Prometheus, Grafana, and Mailpit.
 
 ### Configuration
 
-* Runtime configuration remains env-based; YAML config files are not used.
-* Added common env defaults in `deployments/docker/env/common.env.example`.
-* Added service-specific env examples:
-  * `services/subscription-api/.env.example`
-  * `services/scanner-service/.env.example`
-  * `services/notification-service/.env.example`
-* Added `.env` ignore rules.
-* Moved duplicated common config parsing into `pkg/config`; service-specific config stays inside each service.
+**Before:** configuration was monolith-oriented.
 
-### Tests And Verification
+**Now:** runtime config is env-based and split by ownership:
 
-* Added/updated unit tests for service modules.
-* Added integration tests for database-backed subscription and outbox behavior.
-* Added Kafka E2E scripts:
-  * `scripts/kafka-e2e.ps1`
-  * `scripts/kafka-e2e.sh`
-* Added runtime smoke scripts:
-  * `scripts/runtime-smoke.ps1`
-  * `scripts/runtime-smoke.sh`
-* Removed old `scripts/test.*` and `scripts/observability-smoke.*`.
-* Updated `testing.md` with current verification commands.
+* common local defaults live in `deployments/docker/env/common.env.example`;
+* service-specific defaults live in each service `.env.example`;
+* duplicated config parsing lives in `pkg/config`;
+* service-specific config remains in each service.
 
-### Documentation
+YAML config files are intentionally not used for runtime service configuration.
 
-* Added ADRs for service boundaries, Kafka, Vector logging, and modular microservice boundaries.
-* Marked the old RabbitMQ/Logstash log transport ADR as superseded.
-* Updated `README.md`, `docs/logging.md`, and `docs/observability.md` to describe the target runtime.
+### API And Event Contracts
+
+**Before:** the SDD described HTTP endpoints but did not separate formal API and event contracts.
+
+**Now:**
+
+* HTTP API contract lives in `api/openapi/subscription-api.yaml`;
+* Kafka event contract lives in `api/asyncapi/subber-events.yaml`.
+
+### Verification
+
+**Before:** tests targeted the monolith and old internal packages.
+
+**Now:** verification is split across:
+
+* unit tests for shared packages and service-owned domain logic;
+* integration tests for database-backed subscription/outbox behavior;
+* runtime smoke scripts for local stack readiness;
+* Kafka E2E scripts for the asynchronous business flow.
+
+Current commands are documented in `testing.md`.
