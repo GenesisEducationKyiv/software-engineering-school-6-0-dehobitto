@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/google/uuid"
-
 	"subber/internal/github"
 	"subber/internal/models"
 )
@@ -35,14 +33,16 @@ type SubscriptionService struct {
 	baseURL string
 	jobs    chan<- models.NotificationJob
 	github  GitHubClient
+	gen     UUIDGenerator
 }
 
-func NewSubscriptionService(repo SubscriptionRepository, baseURL string, jobs chan<- models.NotificationJob, gh GitHubClient) *SubscriptionService {
+func NewSubscriptionService(repo SubscriptionRepository, baseURL string, jobs chan<- models.NotificationJob, gh GitHubClient, gen UUIDGenerator) *SubscriptionService {
 	return &SubscriptionService{
 		repo:    repo,
 		baseURL: baseURL,
 		jobs:    jobs,
 		github:  gh,
+		gen:     gen,
 	}
 }
 
@@ -69,7 +69,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 		Email:       email,
 		Repo:        repo,
 		LastSeenTag: tag,
-		Token:       uuid.New().String(),
+		Token:       s.gen.New(),
 		Confirmed:   false,
 	}
 

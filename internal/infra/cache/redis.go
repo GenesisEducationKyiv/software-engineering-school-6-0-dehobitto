@@ -1,8 +1,8 @@
+// Package cache provides a Redis-based caching layer for the application.
 package cache
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -12,16 +12,11 @@ type RedisCache struct {
 	client *redis.Client
 }
 
-func NewRedisCache(ctx context.Context, addr string) (*RedisCache, error) {
+func NewRedisCache(addr string) *RedisCache {
 	client := redis.NewClient(&redis.Options{
 		Addr: addr,
 	})
-
-	if err := client.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("redis ping failed: %w", err)
-	}
-
-	return &RedisCache{client: client}, nil
+	return &RedisCache{client: client}
 }
 
 func (c *RedisCache) Get(ctx context.Context, key string) (string, error) {

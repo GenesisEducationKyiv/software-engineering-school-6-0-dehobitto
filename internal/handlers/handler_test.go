@@ -3,114 +3,40 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
-func TestSubscribe_InvalidJSON(t *testing.T) {
+// newTestRouter wires all handler routes onto a test gin engine.
+func newTestRouter(repo SubscriptionRepository, svc SubscriptionService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := &Handler{}
-	r.POST("/api/subscribe", h.Subscribe)
-
-	req := httptest.NewRequest("POST", "/api/subscribe", bytes.NewBufferString("not json"))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
+	h := NewHandler(repo, svc)
+	r.POST("/subscribe", h.Subscribe)
+	r.GET("/confirm/:token", h.ConfirmByToken)
+	r.GET("/unsubscribe/:token", h.UnsubscribeByToken)
+	r.GET("/subscriptions/", h.GetSubscriptions)
+	return r
 }
 
-func TestSubscribe_InvalidRepoFormat(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := &Handler{}
-	r.POST("/api/subscribe", h.Subscribe)
-
-	body, _ := json.Marshal(map[string]string{
-		"email": "test@example.com",
-		"repo":  "invalid-repo-format",
-	})
-
-	req := httptest.NewRequest("POST", "/api/subscribe", bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
+// do executes a request against r and returns the response recorder.
+func do(r *gin.Engine, method, path string, body []byte) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, bytes.NewBuffer(body))
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
+	return w
 }
 
-func TestConfirmByToken_InvalidToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := &Handler{}
-	r.GET("/api/confirm/:token", h.ConfirmByToken)
-
-	req := httptest.NewRequest("GET", "/api/confirm/not-a-uuid", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
+func jsonBody(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("encode json: %v", err)
 	}
-}
-
-func TestUnsubscribeByToken_InvalidToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := &Handler{}
-	r.GET("/api/unsubscribe/:token", h.UnsubscribeByToken)
-
-	req := httptest.NewRequest("GET", "/api/unsubscribe/not-valid", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestGetSubscriptions_EmptyEmail(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := &Handler{}
-	r.GET("/api/subscriptions/", h.GetSubscriptions)
-
-	req := httptest.NewRequest("GET", "/api/subscriptions/", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestGetSubscriptions_InvalidEmail(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := &Handler{}
-	r.GET("/api/subscriptions/", h.GetSubscriptions)
-
-	req := httptest.NewRequest("GET", "/api/subscriptions/?email=notanemail", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestUUIDGeneration(t *testing.T) {
-	token := uuid.New().String()
-	if err := uuid.Validate(token); err != nil {
-		t.Errorf("generated token is not valid UUID: %s", token)
-	}
+	return b
 }

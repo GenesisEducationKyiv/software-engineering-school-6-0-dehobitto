@@ -3,104 +3,113 @@ package github
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/mock"
 )
 
-func newTestClient(url string) *Client {
+type mockRoundTripper struct {
+	mock.Mock
+}
+
+func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	args := m.Called(req)
+	return args.Get(0).(*http.Response), args.Error(1)
+}
+
+func newMockClient(status int, body string) *Client {
+	transport := new(mockRoundTripper)
+	transport.On("RoundTrip", mock.Anything).Return(response(status, body), nil)
+
 	return &Client{
-		baseURL:    url,
-		httpClient: &http.Client{},
+		baseURL:    "https://api.github.test",
+		httpClient: &http.Client{Transport: transport},
 	}
 }
 
-func TestGetLatestTag_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"tag_name": "v1.2.3"}`))
-	}))
-	defer server.Close()
-
-	tag, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if tag != "v1.2.3" {
-		t.Errorf("expected v1.2.3, got %s", tag)
+func response(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }
 
-func TestGetLatestTag_NotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
-
-	tag, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestGetLatestTag(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		body    string
+		want    string
+		wantErr bool
+	}{
+		{"200 returns tag", http.StatusOK, `{"tag_name":"v1.2.3"}`, "v1.2.3", false},
+		{"404 returns empty tag", http.StatusNotFound, "", "", false},
+		{"429 returns error", http.StatusTooManyRequests, "", "", true},
 	}
-	if tag != "" {
-		t.Errorf("expected empty tag, got %s", tag)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tag, err := newMockClient(tt.status, tt.body).GetLatestTag(context.Background(), "owner/repo")
+
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr = %v", err, tt.wantErr)
+			}
+			if tag != tt.want {
+				t.Errorf("tag = %q, want %q", tag, tt.want)
+			}
+		})
 	}
 }
 
 func TestGetLatestTag_RateLimit(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
-	}))
-	defer server.Close()
-
-	_, err := newTestClient(server.URL).GetLatestTag(context.Background(), "owner/repo")
+	_, err := newMockClient(http.StatusTooManyRequests, "").GetLatestTag(context.Background(), "owner/repo")
 	if err == nil {
 		t.Fatal("expected error for 429, got nil")
 	}
 }
 
-func TestCheckIfRepoExists_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+func TestCheckIfRepoExists(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		wantErr error
+	}{
+		{"200 → nil", http.StatusOK, nil},
+		{"404 → ErrNotFound", http.StatusNotFound, ErrNotFound},
+		{"429 → ErrRateLimit", http.StatusTooManyRequests, ErrRateLimit},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := newMockClient(tt.status, "").CheckIfRepoExists(context.Background(), "owner/repo")
 
-	if err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/repo"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("err = %v, want %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 
-func TestCheckIfRepoExists_NotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
+func TestGetLatestTag_SendsAuthHeader(t *testing.T) {
+	transport := new(mockRoundTripper)
+	transport.On("RoundTrip", mock.MatchedBy(func(req *http.Request) bool {
+		return req.Header.Get("Authorization") == "Bearer test-token"
+	})).Return(response(http.StatusOK, `{"tag_name":"v2.0.0"}`), nil).Once()
 
-	err := newTestClient(server.URL).CheckIfRepoExists(context.Background(), "owner/nonexistent")
-	if !errors.Is(err, ErrNotFound) {
-		t.Errorf("expected ErrNotFound, got %v", err)
+	c := &Client{
+		baseURL:    "https://api.github.test",
+		httpClient: &http.Client{Transport: transport},
+		token:      "test-token",
 	}
-}
-
-func TestGetLatestTag_AuthHeader(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer test-token" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"tag_name": "v2.0.0"}`))
-	}))
-	defer server.Close()
-
-	c := newTestClient(server.URL)
-	c.token = "test-token"
 
 	tag, err := c.GetLatestTag(context.Background(), "owner/repo")
+	transport.AssertExpectations(t)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if tag != "v2.0.0" {
-		t.Errorf("expected v2.0.0, got %s", tag)
+		t.Errorf("tag = %q, want v2.0.0", tag)
 	}
 }

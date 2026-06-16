@@ -47,10 +47,11 @@ func run() error {
 	}
 
 	repo := database.NewRepository(connectionPool)
-	redisCache, err := cache.NewRedisCache(context.Background(), cfg.RedisAddr)
-	if err != nil {
+	redisCache := cache.NewRedisCache(cfg.RedisAddr)
+	if err := redisCache.Ping(context.Background()); err != nil {
 		return fmt.Errorf("connection to redis failed: %w", err)
 	}
+	githubClient := gh.NewClient(cfg.GitHubToken, redisCache)
 
 	jobsChannel := make(chan models.NotificationJob, 100)
 
@@ -59,21 +60,17 @@ func run() error {
 
 	group, groupCtx := errgroup.WithContext(ctx)
 
-	smtpSender := workers.NewSMTPSender(cfg)
-	notifier := workers.NewNotifierWorker(smtpSender)
+	notifier := workers.NewNotifierWorker(workers.NewSMTPSender(cfg))
 	group.Go(withRecover(func() error {
 		return notifier.Start(groupCtx, jobsChannel)
 	}))
-
-	githubClient := gh.NewClient(cfg.GitHubToken, redisCache)
 
 	scanner := workers.NewScannerWorker(repo, jobsChannel, githubClient)
 	group.Go(withRecover(func() error {
 		return scanner.StartScanner(groupCtx)
 	}))
 
-	svc := service.NewSubscriptionService(repo, cfg.BaseURL, jobsChannel, githubClient)
-
+	svc := service.NewSubscriptionService(repo, cfg.BaseURL, jobsChannel, githubClient, service.RealUUIDGenerator)
 	router := routes.SetupRouter(repo, svc, cfg)
 	srv := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
