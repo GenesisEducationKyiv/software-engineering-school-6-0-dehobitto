@@ -14,6 +14,16 @@ sh scripts/test.sh
 .\scripts\test.ps1
 ```
 
+## Manual test + k6 loadtest
+
+```bash
+# start app and logging stack first
+docker compose -f docker-compose.yml -f docker/docker-compose.logging.yml -f docker/docker-compose.observability.yml up --build -d
+
+# then run k6 (exits automatically when done)
+docker compose -f docker-compose.yml -f docker/docker-compose.loadtest.yml run --rm k6
+```
+
 ---
 
 ## Unit Tests
@@ -40,6 +50,7 @@ The E2E suite launches a complete test environment: frontend, real backend, Post
 docker compose -f docker-compose.yml -f docker/docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from e2e e2e
 docker compose -f docker-compose.yml -f docker/docker-compose.e2e.yml down -v
 ```
+
 
 ## Observability Smoke Test
 
