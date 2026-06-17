@@ -72,6 +72,7 @@ func (s *Service) Process(ctx context.Context, payload contracts.NotificationSen
 	if err := s.repo.MarkSent(ctx, payload.IdempotencyKey); err != nil {
 		return err
 	}
+	NotificationSentTotal.Inc()
 	s.log.WithField("notification_id", payload.NotificationID).WithField("repo", payload.Repo).Info("notification sent")
 	return nil
 }
@@ -87,6 +88,7 @@ func (s *Service) handleFailure(ctx context.Context, payload contracts.Notificat
 				return fmt.Errorf("publish notification dlq: %w", err)
 			}
 		}
+		NotificationDeadTotal.Inc()
 		return nil
 	}
 

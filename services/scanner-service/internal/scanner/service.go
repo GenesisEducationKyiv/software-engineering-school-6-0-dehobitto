@@ -114,6 +114,7 @@ func (s *Service) scanRepo(ctx context.Context, watched WatchedRepo, correlation
 		return err
 	}
 	if published {
+		ReleaseDetectedTotal.Inc()
 		s.log.WithField("repo", watched.Repo).WithField("tag", tag).Info("release detected")
 	}
 	return nil

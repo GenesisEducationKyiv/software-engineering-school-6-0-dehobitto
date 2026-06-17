@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/errgroup"
 
 	"subber/pkg/contracts"
@@ -49,6 +50,11 @@ func run() error {
 	if err := outbox.Migrate(context.Background(), pool); err != nil {
 		return err
 	}
+	prometheus.MustRegister(
+		delivery.NotificationSentTotal,
+		delivery.NotificationDeadTotal,
+		outbox.NewBacklogGauge(pool, "notification-service"),
+	)
 
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close() //nolint:errcheck
@@ -82,6 +88,7 @@ func run() error {
 		topic := topic
 		consumer := kafka.NewConsumer(cfg.KafkaBrokers, topic, "notification-service")
 		defer consumer.Close() //nolint:errcheck
+		prometheus.MustRegister(kafka.NewConsumerLagGauge("notification-service", topic, consumer))
 		group.Go(func() error {
 			return consumer.Start(ctx, func(ctx context.Context, _ string, value []byte) error {
 				var event contracts.Envelope[contracts.NotificationSendRequestedPayload]

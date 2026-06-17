@@ -77,6 +77,31 @@ Expected metric groups:
 * notification sent/failed/retried/dead counters;
 * Kafka consumer lag and retry topic backlog, if exposed by infrastructure.
 
+Domain counters now also include:
+
+* `subber_release_detected_total`;
+* `subber_notification_sent_total`;
+* `subber_notification_dead_total`.
+
+`subscription-api` HTTP metrics and access logs cover only `/api/**` traffic. `/metrics` and `/static` are intentionally excluded so they do not pollute user-facing request panels or log searches.
+
+## Alerts
+
+Prometheus evaluates a small alert set from [deployments/docker/prometheus/alerts.yml](../deployments/docker/prometheus/alerts.yml):
+
+* any service job being down for 5 minutes;
+* `subscription-api` 5xx rate above 5% for 10 minutes;
+* `subscription-api` p95 HTTP latency above 1s for 10 minutes.
+* Kafka consumer lag above 100 messages for 10 minutes;
+* outbox backlog above 20 unpublished events for 10 minutes;
+* at least one notification delivery ending in dead state within 10 minutes.
+
+These alerts are intentionally narrow so they page only on service availability or clear user-facing degradation. There is no alert on `/metrics`, `/static`, or low-signal internal noise.
+
+### Tracing
+
+Distributed tracing with OpenTelemetry means every request or event workflow gets a trace id and spans for each hop. In practice it lets you click from one slow or failed request in `subscription-api` through `scanner-service` and `notification-service` without guessing which logs belong together. We do not have it wired here yet, but that is the next sensible step after logs and metrics.
+
 ## Smoke Checks
 
 Runtime smoke should verify:

@@ -47,3 +47,10 @@ func (c *Consumer) Start(ctx context.Context, handler Handler) error {
 func (c *Consumer) Close() error {
 	return c.reader.Close()
 }
+
+func (c *Consumer) Lag() int64 {
+	if c == nil || c.reader == nil {
+		return 0
+	}
+	return c.reader.Stats().Lag
+}

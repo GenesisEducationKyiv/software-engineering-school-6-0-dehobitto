@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/errgroup"
 
 	"subber/pkg/contracts"
@@ -50,6 +51,10 @@ func run() error {
 	if err := outbox.Migrate(context.Background(), pool); err != nil {
 		return err
 	}
+	prometheus.MustRegister(
+		scanner.ReleaseDetectedTotal,
+		outbox.NewBacklogGauge(pool, "scanner-service"),
+	)
 
 	redisCache := cache.NewRedisCache(cfg.RedisAddr)
 	httpReleases := scannergithub.NewHTTPReleaseProvider(cfg.GitHubBaseURL, cfg.GitHubToken)
@@ -69,6 +74,7 @@ func run() error {
 
 	watchlistConsumer := kafka.NewConsumer(cfg.KafkaBrokers, contracts.TopicWatchlistEvents, "scanner-service")
 	defer watchlistConsumer.Close() //nolint:errcheck
+	prometheus.MustRegister(kafka.NewConsumerLagGauge("scanner-service", contracts.TopicWatchlistEvents, watchlistConsumer))
 	group.Go(func() error {
 		return watchlistConsumer.Start(ctx, func(ctx context.Context, _ string, value []byte) error {
 			return service.HandleWatchlistEvent(ctx, value)
