@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -60,4 +61,45 @@ func TestVectorHookFatalPublishesSynchronously(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("fatal publish did not finish")
 	}
+}
+
+func TestVectorHookCloseWithContextBoundsShutdown(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	hook := newVectorHook(server.URL, 1)
+
+	if err := hook.Fire(logEntryForLevel(logrus.InfoLevel, "hello")); err != nil {
+		t.Fatalf("fire returned error: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		done <- hook.CloseWithContext(ctx)
+	}()
+
+	select {
+	case <-done:
+		if time.Since(start) > time.Second {
+			t.Fatal("close was not bounded")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("close was not bounded")
+	}
+}
+
+func logEntryForLevel(level logrus.Level, msg string) *logrus.Entry {
+	base := logrus.New()
+	base.SetFormatter(&logrus.JSONFormatter{})
+	entry := logrus.NewEntry(base)
+	entry.Level = level
+	entry.Message = msg
+	entry.Time = time.Now().UTC()
+	return entry
 }

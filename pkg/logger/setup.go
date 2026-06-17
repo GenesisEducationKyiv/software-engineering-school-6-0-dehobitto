@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"bytes"
 	"fmt"
 	"io"
@@ -54,7 +55,11 @@ func Configure(level string, vectorEnabled bool, vectorURL string, logFiles ...s
 	hook := newVectorHook(vectorURL, defaultVectorBufferSize)
 	logrus.AddHook(hook)
 	return func() {
-		hook.Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := hook.CloseWithContext(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "vector log hook: close failed: %v\n", err)
+		}
 		cleanupFile()
 	}, nil
 }
@@ -63,6 +68,7 @@ type vectorHook struct {
 	url     string
 	client  *http.Client
 	entries chan []byte
+	closeCtx context.Context
 	wg      sync.WaitGroup
 	closed  bool
 	mu      sync.RWMutex
@@ -73,6 +79,7 @@ func newVectorHook(url string, bufferSize int) *vectorHook {
 		url:     url,
 		client:  &http.Client{Timeout: vectorRequestTimeout},
 		entries: make(chan []byte, bufferSize),
+		closeCtx: context.Background(),
 	}
 	hook.wg.Add(1)
 	go hook.publishLoop()
@@ -109,12 +116,18 @@ func (h *vectorHook) Fire(entry *logrus.Entry) error {
 func (h *vectorHook) publishLoop() {
 	defer h.wg.Done()
 	for body := range h.entries {
-		_ = h.publish(body)
+		_ = h.publish(h.publishContext(), body)
 	}
 }
 
-func (h *vectorHook) publish(body []byte) error {
-	req, err := http.NewRequest(http.MethodPost, h.url, bytes.NewReader(body))
+func (h *vectorHook) publishContext() context.Context {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.closeCtx
+}
+
+func (h *vectorHook) publish(ctx context.Context, body []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url, bytes.NewReader(body))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "vector log hook: build request failed: %v\n", err)
 		return err
@@ -133,14 +146,31 @@ func (h *vectorHook) publish(body []byte) error {
 	return nil
 }
 
-func (h *vectorHook) Close() {
+func (h *vectorHook) CloseWithContext(ctx context.Context) error {
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()
-		return
+		return nil
 	}
 	h.closed = true
+	h.closeCtx = ctx
 	close(h.entries)
 	h.mu.Unlock()
-	h.wg.Wait()
+
+	done := make(chan struct{})
+	go func() {
+		h.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (h *vectorHook) Close() {
+	_ = h.CloseWithContext(context.Background())
 }
