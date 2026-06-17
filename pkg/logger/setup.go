@@ -1,8 +1,8 @@
 package logger
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -65,21 +65,24 @@ func Configure(level string, vectorEnabled bool, vectorURL string, logFiles ...s
 }
 
 type vectorHook struct {
-	url     string
-	client  *http.Client
-	entries chan []byte
-	closeCtx context.Context
-	wg      sync.WaitGroup
-	closed  bool
-	mu      sync.RWMutex
+	url         string
+	client      *http.Client
+	entries     chan []byte
+	closeCtx    context.Context
+	closeCancel context.CancelFunc
+	wg          sync.WaitGroup
+	closed      bool
+	mu          sync.RWMutex
 }
 
 func newVectorHook(url string, bufferSize int) *vectorHook {
+	closeCtx, closeCancel := context.WithCancel(context.Background())
 	hook := &vectorHook{
-		url:     url,
-		client:  &http.Client{Timeout: vectorRequestTimeout},
-		entries: make(chan []byte, bufferSize),
-		closeCtx: context.Background(),
+		url:         url,
+		client:      &http.Client{Timeout: vectorRequestTimeout},
+		entries:     make(chan []byte, bufferSize),
+		closeCtx:    closeCtx,
+		closeCancel: closeCancel,
 	}
 	hook.wg.Add(1)
 	go hook.publishLoop()
@@ -97,7 +100,7 @@ func (h *vectorHook) Fire(entry *logrus.Entry) error {
 	}
 
 	if entry.Level == logrus.FatalLevel {
-		return h.publish(body)
+		return h.publish(context.Background(), body)
 	}
 
 	h.mu.RLock()
@@ -153,7 +156,6 @@ func (h *vectorHook) CloseWithContext(ctx context.Context) error {
 		return nil
 	}
 	h.closed = true
-	h.closeCtx = ctx
 	close(h.entries)
 	h.mu.Unlock()
 
@@ -167,6 +169,7 @@ func (h *vectorHook) CloseWithContext(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
+		h.closeCancel()
 		return ctx.Err()
 	}
 }

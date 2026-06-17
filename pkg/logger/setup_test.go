@@ -64,10 +64,12 @@ func TestVectorHookFatalPublishesSynchronously(t *testing.T) {
 }
 
 func TestVectorHookCloseWithContextBoundsShutdown(t *testing.T) {
+	releaseResponse := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		<-r.Context().Done()
+		<-releaseResponse
 	}))
 	defer server.Close()
+	defer close(releaseResponse)
 
 	hook := newVectorHook(server.URL, 1)
 
