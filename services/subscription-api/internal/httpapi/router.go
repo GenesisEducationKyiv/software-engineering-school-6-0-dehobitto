@@ -27,6 +27,7 @@ type RouterDeps struct {
 	Service           SubscriptionCreator
 	Logger            logger.Logger
 	Gatherer          prometheus.Gatherer
+	AccessMetrics     *AccessMetrics
 	SubscribeRequests *prometheus.CounterVec
 }
 
@@ -50,6 +51,7 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 	r.Use(gin.Recovery())
 	r.SetTrustedProxies(nil) //nolint:errcheck,gosec
 	r.Use(requestIDMiddleware())
+	r.Use(accessMiddleware(log.WithField("component", "access"), deps.AccessMetrics))
 
 	if deps.Gatherer != nil {
 		r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(deps.Gatherer, promhttp.HandlerOpts{})))

@@ -19,6 +19,8 @@ Kafka, RabbitMQ, and Logstash are not used for log transport in the target micro
 
 Each service uses the shared `pkg/logger` package.
 
+`subscription-api` also emits a separate HTTP access log stream for `/api/**` requests. These entries are tagged with `component=access` so they can be filtered away from system logs in Elasticsearch/Kibana. `/metrics` and `/static` stay out of that path.
+
 Default behavior:
 
 * `LOG_LEVEL=info`

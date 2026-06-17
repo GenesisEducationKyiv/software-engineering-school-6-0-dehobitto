@@ -11,8 +11,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"subber/pkg/requestid"
+	"subber/pkg/logger"
 	"subber/services/subscription-api/internal/subscription"
 )
 
@@ -53,6 +56,23 @@ func newTestRouter(apiKey string, reader *fakeSubscriptionReader, creator *fakeS
 		APIKey:  apiKey,
 		Repo:    reader,
 		Service: creator,
+	})
+}
+
+func newObservedTestRouter(apiKey string, reader *fakeSubscriptionReader, creator *fakeSubscriptionCreator, log logger.Logger, metrics *AccessMetrics) http.Handler {
+	gin.SetMode(gin.TestMode)
+	registry := prometheus.NewRegistry()
+	if metrics == nil {
+		metrics = NewAccessMetrics()
+	}
+	registry.MustRegister(metrics.Requests, metrics.Duration)
+	return SetupRouter(RouterDeps{
+		APIKey:        apiKey,
+		Repo:          reader,
+		Service:       creator,
+		Logger:        log,
+		Gatherer:      registry,
+		AccessMetrics: metrics,
 	})
 }
 
@@ -306,4 +326,105 @@ func TestRequestIDMiddleware_GeneratesMissingHeader(t *testing.T) {
 	if got := res.Header().Get(requestid.Header); got == "" {
 		t.Fatal("request id missing from response header")
 	}
+}
+
+func TestAPIAccessMiddleware_LogsAndCountsAPIRequestsOnly(t *testing.T) {
+	metrics := NewAccessMetrics()
+	log := newFakeLogger()
+	router := newObservedTestRouter("", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{}, log, metrics)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/?email=bad-email", nil)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", res.Code)
+	}
+
+	if len(*log.entries) != 1 {
+		t.Fatalf("access log entries = %d, want 1", len(*log.entries))
+	}
+	got := (*log.entries)[0]
+	if got.fields["component"] != "access" {
+		t.Fatalf("component = %#v, want access", got.fields["component"])
+	}
+	if got.fields["route"] != "/api/subscriptions/" {
+		t.Fatalf("route = %#v, want /api/subscriptions/", got.fields["route"])
+	}
+	if got.fields["status"] != 400 {
+		t.Fatalf("status = %#v, want 400", got.fields["status"])
+	}
+	if got.fields["request_id"] == "" {
+		t.Fatal("request_id missing from access log")
+	}
+	if want := 1.0; testutil.ToFloat64(metrics.Requests.WithLabelValues("GET", "/api/subscriptions/", "400")) != want {
+		t.Fatalf("request counter = %v, want %v", testutil.ToFloat64(metrics.Requests.WithLabelValues("GET", "/api/subscriptions/", "400")), want)
+	}
+
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRes := httptest.NewRecorder()
+	router.ServeHTTP(metricsRes, metricsReq)
+	if metricsRes.Code != http.StatusOK {
+		t.Fatalf("metrics status = %d, want 200", metricsRes.Code)
+	}
+	if len(*log.entries) != 1 {
+		t.Fatalf("access log entries after /metrics = %d, want 1", len(*log.entries))
+	}
+	if got := testutil.ToFloat64(metrics.Requests.WithLabelValues("GET", "/api/subscriptions/", "400")); got != 1 {
+		t.Fatalf("request counter after /metrics = %v, want 1", got)
+	}
+}
+
+type fakeLogger struct {
+	entries *[]loggedEntry
+	fields  map[string]any
+}
+
+type loggedEntry struct {
+	level  string
+	msg    string
+	fields map[string]any
+}
+
+func newFakeLogger() *fakeLogger {
+	entries := make([]loggedEntry, 0, 8)
+	return &fakeLogger{entries: &entries, fields: map[string]any{}}
+}
+
+func (l *fakeLogger) WithField(key string, value any) logger.Logger {
+	next := &fakeLogger{
+		entries: l.entries,
+		fields:  cloneFields(l.fields),
+	}
+	next.fields[key] = value
+	return next
+}
+
+func (l *fakeLogger) WithError(err error) logger.Logger {
+	if err == nil {
+		return l
+	}
+	return l.WithField("error", err.Error())
+}
+
+func (l *fakeLogger) Info(msg string)  { l.append("info", msg) }
+func (l *fakeLogger) Warn(msg string)  { l.append("warn", msg) }
+func (l *fakeLogger) Error(msg string) { l.append("error", msg) }
+func (l *fakeLogger) Fatal(msg string)  { l.append("fatal", msg) }
+
+func (l *fakeLogger) append(level, msg string) {
+	entry := loggedEntry{
+		level:  level,
+		msg:    msg,
+		fields: cloneFields(l.fields),
+	}
+	*l.entries = append(*l.entries, entry)
+}
+
+func cloneFields(src map[string]any) map[string]any {
+	dst := make(map[string]any, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }

@@ -18,6 +18,7 @@ import (
 	"subber/pkg/contracts"
 	"subber/pkg/kafka"
 	"subber/pkg/logger"
+	"subber/pkg/outbox"
 	"subber/pkg/postgres"
 	"subber/services/subscription-api/internal/config"
 	"subber/services/subscription-api/internal/httpapi"
@@ -47,10 +48,13 @@ func run() error {
 		},
 		[]string{"result"},
 	)
+	accessMetrics := httpapi.NewAccessMetrics()
 	metricRegistry.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		subscribeRequests,
+		accessMetrics.Requests,
+		accessMetrics.Duration,
 	)
 	log := logger.New().WithField("service", "subscription-api")
 
@@ -63,6 +67,7 @@ func run() error {
 	if err := subscription.Migrate(context.Background(), pool); err != nil {
 		return fmt.Errorf("migrate subscription database: %w", err)
 	}
+	metricRegistry.MustRegister(outbox.NewBacklogGauge(pool, "subscription-api"))
 
 	repo := subscription.NewRepository(pool)
 	githubClient := subscription.NewHTTPGitHubClient(cfg.GitHubBaseURL, cfg.GitHubToken)
@@ -81,6 +86,7 @@ func run() error {
 		Service:           svc,
 		Logger:            log,
 		Gatherer:          metricRegistry,
+		AccessMetrics:     accessMetrics,
 		SubscribeRequests: subscribeRequests,
 	})
 	srv := &http.Server{
@@ -109,6 +115,7 @@ func run() error {
 
 	releaseConsumer := kafka.NewConsumer(cfg.KafkaBrokers, contracts.TopicReleaseEvents, "subscription-api")
 	defer releaseConsumer.Close() //nolint:errcheck
+	metricRegistry.MustRegister(kafka.NewConsumerLagGauge("subscription-api", contracts.TopicReleaseEvents, releaseConsumer))
 	group.Go(func() error {
 		return releaseConsumer.Start(ctx, func(ctx context.Context, _ string, value []byte) error {
 			var event contracts.Envelope[contracts.ReleaseDetectedPayload]
