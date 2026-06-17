@@ -89,6 +89,10 @@ func (h *vectorHook) Fire(entry *logrus.Entry) error {
 		return err
 	}
 
+	if entry.Level == logrus.FatalLevel {
+		return h.publish(body)
+	}
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	if h.closed {
@@ -105,22 +109,28 @@ func (h *vectorHook) Fire(entry *logrus.Entry) error {
 func (h *vectorHook) publishLoop() {
 	defer h.wg.Done()
 	for body := range h.entries {
-		req, err := http.NewRequest(http.MethodPost, h.url, bytes.NewReader(body))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "vector log hook: build request failed: %v\n", err)
-			continue
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := h.client.Do(req)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "vector log hook: publish failed: %v\n", err)
-			continue
-		}
-		_ = resp.Body.Close()
-		if resp.StatusCode >= http.StatusBadRequest {
-			fmt.Fprintf(os.Stderr, "vector log hook: publish returned status %d\n", resp.StatusCode)
-		}
+		_ = h.publish(body)
 	}
+}
+
+func (h *vectorHook) publish(body []byte) error {
+	req, err := http.NewRequest(http.MethodPost, h.url, bytes.NewReader(body))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vector log hook: build request failed: %v\n", err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := h.client.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vector log hook: publish failed: %v\n", err)
+		return err
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		fmt.Fprintf(os.Stderr, "vector log hook: publish returned status %d\n", resp.StatusCode)
+		return fmt.Errorf("publish returned status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func (h *vectorHook) Close() {
