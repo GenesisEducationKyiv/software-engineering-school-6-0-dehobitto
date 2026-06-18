@@ -2,4 +2,5 @@
 **/.env
 .idea/
 /docs/superpowers/
+/PR_OBSERVABILITY_NOTES.md
 /technical-debt.local.md
