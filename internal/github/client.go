@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
 	"subber/internal/infra/cache"
+	"subber/internal/logger"
 	"subber/internal/models"
 )
 
@@ -23,14 +23,26 @@ type Client struct {
 	httpClient *http.Client
 	token      string
 	cache      cache.Cache
+	log        logger.Logger
 }
 
-func NewClient(token string, c cache.Cache) *Client {
+func NewClient(token string, c cache.Cache, log logger.Logger) *Client {
+	return NewClientWithBaseURL(defaultBaseURL, token, c, log)
+}
+
+func NewClientWithBaseURL(baseURL, token string, c cache.Cache, log logger.Logger) *Client {
+	if log == nil {
+		log = logger.NewNoop()
+	}
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
 	return &Client{
-		baseURL:    defaultBaseURL,
+		baseURL:    baseURL,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		token:      token,
 		cache:      c,
+		log:        log,
 	}
 }
 
@@ -40,7 +52,7 @@ func (c *Client) GetLatestTag(ctx context.Context, repo string) (string, error) 
 	if c.cache != nil {
 		cached, err := c.cache.Get(ctx, cacheKey)
 		if err != nil {
-			log.Printf("cache get failed for %s: %v", repo, err)
+			logger.WithRequestID(c.log, ctx).WithField("repo", repo).WithError(err).Warn("cache get failed")
 		}
 		if cached != "" {
 			return cached, nil
@@ -58,19 +70,26 @@ func (c *Client) GetLatestTag(ctx context.Context, repo string) (string, error) 
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
+	start := time.Now()
 	resp, err := c.httpClient.Do(req)
+	duration := time.Since(start).Milliseconds()
 	if err != nil {
+		logger.WithRequestID(c.log, ctx).WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "unavailable").WithError(err).Error("github api call failed")
 		return "", err
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
 	switch resp.StatusCode {
 	case http.StatusNotFound:
+		logger.WithRequestID(c.log, ctx).WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "not_found").Info("github api call")
 		return "", nil
 	case http.StatusTooManyRequests:
+		logger.WithRequestID(c.log, ctx).WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "rate_limited").Warn("github api rate limited")
 		return "", fmt.Errorf("github rate limit exceeded (429)")
 	case http.StatusOK:
+		logger.WithRequestID(c.log, ctx).WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "ok").Info("github api call")
 	default:
+		logger.WithRequestID(c.log, ctx).WithField("repo", repo).WithField("duration_ms", duration).WithField("status", "unavailable").WithField("http_code", resp.StatusCode).Error("github api unexpected status")
 		return "", fmt.Errorf("github error: %d", resp.StatusCode)
 	}
 
@@ -81,7 +100,7 @@ func (c *Client) GetLatestTag(ctx context.Context, repo string) (string, error) 
 
 	if c.cache != nil && release.LastSeenTag != "" {
 		if err := c.cache.Set(ctx, cacheKey, release.LastSeenTag, 45*time.Second); err != nil {
-			log.Printf("failed to cache tag for %s: %v", repo, err)
+			logger.WithRequestID(c.log, ctx).WithField("repo", repo).WithError(err).Warn("failed to cache tag")
 		}
 	}
 

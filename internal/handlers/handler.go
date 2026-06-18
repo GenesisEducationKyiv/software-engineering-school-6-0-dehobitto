@@ -4,6 +4,7 @@ package handlers
 import (
 	"context"
 
+	"subber/internal/logger"
 	"subber/internal/models"
 )
 
@@ -20,11 +21,16 @@ type SubscriptionService interface {
 type Handler struct {
 	repo SubscriptionRepository
 	svc  SubscriptionService
+	log  logger.Logger
 }
 
-func NewHandler(repo SubscriptionRepository, svc SubscriptionService) *Handler {
+func NewHandler(repo SubscriptionRepository, svc SubscriptionService, log logger.Logger) *Handler {
+	if log == nil {
+		log = logger.NewNoop()
+	}
 	return &Handler{
 		repo: repo,
 		svc:  svc,
+		log:  log,
 	}
 }

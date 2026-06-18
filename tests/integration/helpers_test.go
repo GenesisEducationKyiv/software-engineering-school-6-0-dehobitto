@@ -14,12 +14,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/mock"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"subber/internal/config"
 	ghpkg "subber/internal/github"
 	"subber/internal/infra/database"
+	"subber/internal/logger"
+	"subber/internal/metrics"
 	"subber/internal/models"
 	"subber/internal/routes"
 	"subber/internal/service"
@@ -81,11 +84,14 @@ func newTestEnv(t *testing.T, gh service.GitHubClient) *testEnv {
 	dbRepo := database.NewRepository(sharedPool)
 	cfg := &config.Config{BaseURL: "http://localhost", APIKey: "test-key"}
 	jobs := make(chan models.NotificationJob, 100)
+	log := logger.NewNoop()
+	registry := prometheus.NewRegistry()
+	appMetrics := metrics.New(registry)
 
-	svc := service.NewSubscriptionService(dbRepo, cfg.BaseURL, jobs, gh, service.RealUUIDGenerator)
+	svc := service.NewSubscriptionService(dbRepo, cfg.BaseURL, jobs, gh, service.RealUUIDGenerator, log)
 
 	gin.SetMode(gin.TestMode)
-	router := routes.SetupRouter(dbRepo, svc, cfg)
+	router := routes.SetupRouter(dbRepo, svc, cfg, log, appMetrics, registry)
 
 	return &testEnv{router: router, pool: sharedPool}
 }

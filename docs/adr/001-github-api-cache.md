@@ -1,7 +1,9 @@
 ## ADR-001: Select caching tool for GitHub API responses
 
-**Status:** Pending (waiting for a review)
+**Status:** Accepted
+
 **Date:** 2026-05-13
+
 **Author:** Oleksandr Makarov
 
 ## Context

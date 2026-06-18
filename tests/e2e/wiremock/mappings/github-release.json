@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/repos/owner/repo/releases/latest"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "tag_name": "v1.0.0"
+    }
+  }
+}

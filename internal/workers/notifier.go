@@ -3,22 +3,30 @@ package workers
 
 import (
 	"context"
-	"log"
 
+	"subber/internal/logger"
 	"subber/internal/metrics"
 	"subber/internal/models"
 )
 
 type NotifierWorker struct {
-	sender EmailSender
+	sender  EmailSender
+	log     logger.Logger
+	metrics *metrics.Metrics
 }
 
-func NewNotifierWorker(sender EmailSender) *NotifierWorker {
-	return &NotifierWorker{sender: sender}
+func NewNotifierWorker(sender EmailSender, log logger.Logger, appMetrics *metrics.Metrics) *NotifierWorker {
+	if log == nil {
+		log = logger.NewNoop()
+	}
+	if appMetrics == nil {
+		appMetrics = metrics.NewNoop()
+	}
+	return &NotifierWorker{sender: sender, log: log, metrics: appMetrics}
 }
 
 func (n *NotifierWorker) Start(ctx context.Context, jobs <-chan models.NotificationJob) error {
-	log.Println("Notifier worker started")
+	n.log.Info("notifier worker started")
 
 	for {
 		select {
@@ -28,13 +36,20 @@ func (n *NotifierWorker) Start(ctx context.Context, jobs <-chan models.Notificat
 			if !ok {
 				return nil
 			}
+			entry := logger.WithEmailHash(n.log, job.Email).WithField("repo", job.Repo)
+			if job.RequestID != "" {
+				entry = entry.WithField("request_id", job.RequestID)
+			}
+			if job.ScanCycleID != "" {
+				entry = entry.WithField("scan_cycle_id", job.ScanCycleID)
+			}
 			if err := n.sender.Send(job.Email, job.Message); err != nil {
-				log.Printf("Failed to send email to %s: %v", job.Email, err)
-				metrics.EmailsFailedTotal.Inc()
+				entry.WithError(err).Error("failed to send email")
+				n.metrics.EmailsFailedTotal.Inc()
 				continue
 			}
-			log.Printf("Email sent to %s", job.Email)
-			metrics.EmailsSentTotal.Inc()
+			entry.Info("email sent")
+			n.metrics.EmailsSentTotal.Inc()
 		}
 	}
 }

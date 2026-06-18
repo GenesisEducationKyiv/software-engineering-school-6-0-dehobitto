@@ -1,0 +1,114 @@
+# Overlay file for the ELK logging stack. Always use together with the base compose file:
+#   docker compose -f docker-compose.yml -f docker/docker-compose.logging.yml up -d
+#
+# The 'subber' service defined here adds only 'depends_on: rabbitmq' to the base definition.
+services:
+  rabbitmq:
+    image: rabbitmq:4.3.1-management-alpine
+    container_name: subber_rabbitmq
+    command: >
+      sh -c "rabbitmq-plugins enable --offline rabbitmq_prometheus && rabbitmq-server"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "15692:15692"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  elasticsearch:
+    image: elasticsearch:9.4.2
+    container_name: subber_elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  elasticsearch-setup:
+    image: curlimages/curl:latest
+    container_name: subber_elasticsearch_setup
+    volumes:
+      - ./docker/elasticsearch:/elasticsearch:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    command: >
+      sh -c '
+      curl -fsS -X PUT "http://elasticsearch:9200/_ilm/policy/subber-logs-7d"
+      -H "Content-Type: application/json"
+      --data-binary @/elasticsearch/ilm/subber-logs-policy.json
+      &&
+      curl -fsS -X PUT "http://elasticsearch:9200/_index_template/subber-logs-template"
+      -H "Content-Type: application/json"
+      --data-binary @/elasticsearch/templates/subber-logs-template.json
+      '
+    restart: "no"
+
+  logstash:
+    image: logstash:9.4.2
+    container_name: subber_logstash
+    volumes:
+      - ./docker/logstash/pipeline:/usr/share/logstash/pipeline:ro
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASS=guest
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - LS_JAVA_OPTS=-Xms256m -Xmx256m
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch-setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  kibana:
+    image: kibana:9.4.2
+    container_name: subber_kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false
+      - xpack.fleet.enabled=false
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q 'available'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  kibana-setup:
+    image: curlimages/curl:latest
+    container_name: subber_kibana_setup
+    volumes:
+      - ./docker/kibana:/kibana:ro
+    depends_on:
+      kibana:
+        condition: service_healthy
+    command: >
+      curl -s -X POST "http://kibana:5601/api/saved_objects/_import?overwrite=true"
+      -H "kbn-xsrf: true"
+      --form file=@/kibana/dashboards.ndjson
+    restart: "no"
+
+  subber:
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy

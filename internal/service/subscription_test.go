@@ -8,7 +8,9 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	ghpkg "subber/internal/github"
+	"subber/internal/logger"
 	"subber/internal/models"
+	"subber/internal/requestid"
 )
 
 type mockSubscriptionRepository struct {
@@ -39,7 +41,7 @@ func (m *mockGitHubClient) GetLatestTag(ctx context.Context, repo string) (strin
 
 func newSvc(repo SubscriptionRepository, gh GitHubClient) (*SubscriptionService, chan models.NotificationJob) {
 	jobs := make(chan models.NotificationJob, 1)
-	return NewSubscriptionService(repo, "http://localhost", jobs, gh, RealUUIDGenerator), jobs
+	return NewSubscriptionService(repo, "http://localhost", jobs, gh, RealUUIDGenerator, logger.NewNoop()), jobs
 }
 
 func expectSubscriptionExists(repo *mockSubscriptionRepository, exists bool, err error) {
@@ -264,6 +266,33 @@ func TestSubscribe_Success_EnqueuesConfirmation(t *testing.T) {
 	case job := <-jobs:
 		if job.Email != "a@b.com" {
 			t.Errorf("job email: want a@b.com, got %s", job.Email)
+		}
+	default:
+		t.Error("confirmation job must be enqueued on success")
+	}
+}
+
+func TestSubscribe_Success_PropagatesRequestIDToConfirmation(t *testing.T) {
+	repo := new(mockSubscriptionRepository)
+	gh := new(mockGitHubClient)
+	var saved models.Subscription
+	expectSubscriptionExists(repo, false, nil)
+	expectRepoValid(gh)
+	gh.On("GetLatestTag", mock.Anything, "owner/repo").Return("v1.0.0", nil).Once()
+	expectSave(repo, &saved, nil)
+	svc, jobs := newSvc(repo, gh)
+
+	ctx := requestid.WithContext(context.Background(), "req-123")
+	if err := svc.Subscribe(ctx, "a@b.com", "owner/repo"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	repo.AssertExpectations(t)
+	gh.AssertExpectations(t)
+
+	select {
+	case job := <-jobs:
+		if job.RequestID != "req-123" {
+			t.Errorf("job request id: want req-123, got %q", job.RequestID)
 		}
 	default:
 		t.Error("confirmation job must be enqueued on success")

@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // unsetKeys unsets each key for the duration of the test and restores originals via t.Cleanup.
@@ -24,6 +26,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	unsetKeys(t,
 		"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME",
 		"PORT", "GITHUB_TOKEN", "SMTP_HOST", "SMTP_PORT",
+		"GITHUB_BASE_URL",
 		"SMTP_EMAIL", "SMTP_PASSWORD", "REDIS_ADDR", "API_KEY", "BASE_URL",
 	)
 
@@ -39,6 +42,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		{"DBName", cfg.DBName, "db"},
 		{"ServerPort", cfg.ServerPort, "8080"},
 		{"GitHubToken", cfg.GitHubToken, ""},
+		{"GitHubBaseURL", cfg.GitHubBaseURL, "https://api.github.com"},
 		{"SMTPHost", cfg.SMTPHost, "smtp.gmail.com"},
 		{"SMTPPort", cfg.SMTPPort, "587"},
 		{"SMTPEmail", cfg.SMTPEmail, ""},
@@ -58,6 +62,7 @@ func TestLoadConfig_FromEnv(t *testing.T) {
 	t.Setenv("DB_HOST", "customhost")
 	t.Setenv("DB_PORT", "9999")
 	t.Setenv("API_KEY", "my-secret")
+	t.Setenv("GITHUB_BASE_URL", "http://github-mock:8080")
 
 	cfg := LoadConfig()
 
@@ -70,4 +75,31 @@ func TestLoadConfig_FromEnv(t *testing.T) {
 	if cfg.APIKey != "my-secret" {
 		t.Errorf("APIKey = %q, want my-secret", cfg.APIKey)
 	}
+	if cfg.GitHubBaseURL != "http://github-mock:8080" {
+		t.Errorf("GitHubBaseURL = %q, want http://github-mock:8080", cfg.GitHubBaseURL)
+	}
+}
+
+func TestLoadConfig_LogLevel(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "debug")
+	cfg := LoadConfig()
+	assert.Equal(t, "debug", cfg.LogLevel)
+}
+
+func TestLoadConfig_LogFile_DefaultEmpty(t *testing.T) {
+	t.Setenv("LOG_FILE", "")
+	cfg := LoadConfig()
+	assert.Equal(t, "", cfg.LogFile)
+}
+
+func TestLoadConfig_RabbitMQURL(t *testing.T) {
+	t.Setenv("RABBITMQ_URL", "amqp://user:pass@localhost:5672/")
+	cfg := LoadConfig()
+	assert.Equal(t, "amqp://user:pass@localhost:5672/", cfg.RabbitMQURL)
+}
+
+func TestLoadConfig_RabbitMQURL_DefaultEmpty(t *testing.T) {
+	t.Setenv("RABBITMQ_URL", "")
+	cfg := LoadConfig()
+	assert.Equal(t, "", cfg.RabbitMQURL)
 }

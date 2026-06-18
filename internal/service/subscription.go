@@ -5,10 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 
 	"subber/internal/github"
+	"subber/internal/logger"
 	"subber/internal/models"
+	"subber/internal/requestid"
 )
 
 type SubscriptionRepository interface {
@@ -34,15 +35,20 @@ type SubscriptionService struct {
 	jobs    chan<- models.NotificationJob
 	github  GitHubClient
 	gen     UUIDGenerator
+	log     logger.Logger
 }
 
-func NewSubscriptionService(repo SubscriptionRepository, baseURL string, jobs chan<- models.NotificationJob, gh GitHubClient, gen UUIDGenerator) *SubscriptionService {
+func NewSubscriptionService(repo SubscriptionRepository, baseURL string, jobs chan<- models.NotificationJob, gh GitHubClient, gen UUIDGenerator, log logger.Logger) *SubscriptionService {
+	if log == nil {
+		log = logger.NewNoop()
+	}
 	return &SubscriptionService{
 		repo:    repo,
 		baseURL: baseURL,
 		jobs:    jobs,
 		github:  gh,
 		gen:     gen,
+		log:     log,
 	}
 }
 
@@ -62,7 +68,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 
 	tag, err := s.github.GetLatestTag(ctx, repo)
 	if err != nil {
-		log.Printf("Warning: could not fetch initial tag for %s: %v", repo, err)
+		logger.WithRequestID(s.log, ctx).WithField("repo", repo).WithError(err).Warn("could not fetch initial tag")
 	}
 
 	sub := models.Subscription{
@@ -77,7 +83,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, email, repo string)
 		return fmt.Errorf("save subscription: %w", err)
 	}
 
-	s.enqueueConfirmation(sub.Email, sub.Token)
+	s.enqueueConfirmation(ctx, sub.Email, sub.Repo, sub.Token)
 	return nil
 }
 
@@ -95,17 +101,22 @@ func (s *SubscriptionService) validateRepoOnGitHub(ctx context.Context, repo str
 	}
 }
 
-func (s *SubscriptionService) enqueueConfirmation(email, token string) {
+func (s *SubscriptionService) enqueueConfirmation(ctx context.Context, email, repo, token string) {
 	confirmURL := fmt.Sprintf("%s/api/confirm/%s", s.baseURL, token)
 	message := fmt.Sprintf(
 		"Welcome! Please confirm your subscription to GitHub repository updates by clicking here: %s",
 		confirmURL,
 	)
 
+	job := models.NotificationJob{Email: email, Repo: repo, Message: message}
+	if id, ok := requestid.FromContext(ctx); ok {
+		job.RequestID = id
+	}
+
 	select {
-	case s.jobs <- models.NotificationJob{Email: email, Message: message}:
-		log.Printf("Confirmation job queued for: %s", email)
+	case s.jobs <- job:
+		logger.WithRequestID(logger.WithEmailHash(s.log, email), ctx).WithField("repo", repo).Info("confirmation job queued")
 	default:
-		log.Printf("Critical: notification channel full, dropping confirmation for: %s", email)
+		logger.WithRequestID(logger.WithEmailHash(s.log, email), ctx).Error("notification channel full, dropping confirmation")
 	}
 }

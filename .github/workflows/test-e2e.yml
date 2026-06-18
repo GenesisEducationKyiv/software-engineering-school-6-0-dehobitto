@@ -8,15 +8,44 @@ on:
 
 jobs:
   test:
-    name: Run E2E Tests
+    name: Run FE + BE E2E Tests
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Build E2E image
-        run: docker build -f tests/e2e/Dockerfile -t subber-e2e .
+      - name: Prepare compose environment
+        run: |
+          cat > .env <<'EOF'
+          DB_HOST=postgres
+          DB_NAME=postgres_db
+          DB_USER=postgres_user
+          DB_PASSWORD=psswd
+          DB_PORT=5432
+          REDIS_ADDR=redis:6379
+          API_KEY=test-key
+          GITHUB_TOKEN=
+          GITHUB_BASE_URL=https://api.github.com
+          GIN_MODE=release
+          SMTP_HOST=127.0.0.1
+          SMTP_PORT=2525
+          SMTP_EMAIL=e2e@example.com
+          SMTP_PASSWORD=e2e
+          LOG_LEVEL=info
+          EOF
 
       - name: Run E2E tests
-        run: docker run --rm subber-e2e
+        run: >
+          docker compose
+          -f docker-compose.yml
+          -f docker/docker-compose.e2e.yml
+          up --build --abort-on-container-exit --exit-code-from e2e e2e
+
+      - name: Cleanup E2E environment
+        if: always()
+        run: >
+          docker compose
+          -f docker-compose.yml
+          -f docker/docker-compose.e2e.yml
+          down -v --remove-orphans

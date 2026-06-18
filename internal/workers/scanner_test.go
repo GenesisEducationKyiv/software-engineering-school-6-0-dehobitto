@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
+	"subber/internal/logger"
+	"subber/internal/metrics"
 	"subber/internal/models"
 )
 
@@ -39,7 +41,7 @@ func (m *mockReleaseChecker) GetLatestTag(ctx context.Context, repo string) (str
 
 func newWorker(repo ScanRepository, gh ReleaseChecker) (*ScannerWorker, chan models.NotificationJob) {
 	jobs := make(chan models.NotificationJob, 10)
-	return &ScannerWorker{repo: repo, jobs: jobs, github: gh}, jobs
+	return NewScannerWorker(repo, jobs, gh, logger.NewNoop(), metrics.NewNoop()), jobs
 }
 
 func expectUniqueSubscriptions(repo *mockScanRepository, releases []models.GitHubRelease, err error) {
@@ -66,7 +68,7 @@ func TestScan_NoRepos_NoJobsEnqueued(t *testing.T) {
 	expectUniqueSubscriptions(repo, nil, nil)
 	w, jobs := newWorker(repo, new(mockReleaseChecker))
 
-	if err := w.scan(context.Background()); err != nil {
+	if err := w.scan(context.Background(), "test-scan-cycle"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	repo.AssertExpectations(t)
@@ -85,7 +87,7 @@ func TestScan_TagUnchanged_NoUpdateNoJob(t *testing.T) {
 	expectLatestTag(gh, "owner/repo", "v1.0.0", nil)
 	w, jobs := newWorker(repo, gh)
 
-	if err := w.scan(context.Background()); err != nil {
+	if err := w.scan(context.Background(), "test-scan-cycle"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	repo.AssertExpectations(t)
@@ -108,7 +110,7 @@ func TestScan_NewRelease_UpdatesTag(t *testing.T) {
 	expectSubscribers(repo, "owner/repo", []string{"a@b.com"}, nil)
 	w, _ := newWorker(repo, gh)
 
-	if err := w.scan(context.Background()); err != nil {
+	if err := w.scan(context.Background(), "test-scan-cycle"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	repo.AssertExpectations(t)
@@ -126,7 +128,7 @@ func TestScan_NewRelease_NotifiesAllSubscribers(t *testing.T) {
 	expectSubscribers(repo, "owner/repo", []string{"a@b.com", "c@d.com"}, nil)
 	w, jobs := newWorker(repo, gh)
 
-	if err := w.scan(context.Background()); err != nil {
+	if err := w.scan(context.Background(), "test-scan-cycle"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	repo.AssertExpectations(t)
@@ -134,6 +136,10 @@ func TestScan_NewRelease_NotifiesAllSubscribers(t *testing.T) {
 
 	if len(jobs) != 2 {
 		t.Errorf("expected 2 notification jobs, got %d", len(jobs))
+	}
+	job := <-jobs
+	if job.ScanCycleID != "test-scan-cycle" {
+		t.Errorf("job scan cycle id: want test-scan-cycle, got %q", job.ScanCycleID)
 	}
 }
 
@@ -152,7 +158,7 @@ func TestScan_GetLatestTagFails_RepoSkipped(t *testing.T) {
 	expectSubscribers(repo, "owner/good", []string{"a@b.com"}, nil)
 	w, jobs := newWorker(repo, gh)
 
-	if err := w.scan(context.Background()); err != nil {
+	if err := w.scan(context.Background(), "test-scan-cycle"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	repo.AssertExpectations(t)
@@ -174,7 +180,7 @@ func TestScan_UpdateTagsFails_NoJobEnqueued(t *testing.T) {
 	expectUpdate(repo, models.GitHubRelease{Repo: "owner/repo", LastSeenTag: "v2.0.0"}, errors.New("db error"))
 	w, jobs := newWorker(repo, gh)
 
-	if err := w.scan(context.Background()); err != nil {
+	if err := w.scan(context.Background(), "test-scan-cycle"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	repo.AssertExpectations(t)
@@ -197,7 +203,7 @@ func TestScan_GetSubscribersFails_NoJobEnqueued(t *testing.T) {
 	expectSubscribers(repo, "owner/repo", nil, errors.New("db error"))
 	w, jobs := newWorker(repo, gh)
 
-	if err := w.scan(context.Background()); err != nil {
+	if err := w.scan(context.Background(), "test-scan-cycle"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	repo.AssertExpectations(t)

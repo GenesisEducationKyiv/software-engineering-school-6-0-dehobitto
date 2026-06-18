@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 
+	"subber/internal/logger"
 	"subber/internal/models"
 	"subber/internal/service"
 )
@@ -45,7 +46,7 @@ func (m *mockSubscriptionService) Subscribe(ctx context.Context, email, repo str
 func newRouter(repo SubscriptionRepository, svc SubscriptionService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := NewHandler(repo, svc)
+	h := NewHandler(repo, svc, logger.NewNoop())
 	r.POST("/subscribe", h.Subscribe)
 	r.GET("/confirm/:token", h.ConfirmByToken)
 	r.GET("/unsubscribe/:token", h.UnsubscribeByToken)

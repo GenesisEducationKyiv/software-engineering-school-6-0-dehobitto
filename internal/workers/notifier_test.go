@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
+	"subber/internal/logger"
+	"subber/internal/metrics"
 	"subber/internal/models"
 )
 
@@ -25,7 +27,7 @@ func TestNotifier_SendsEmail(t *testing.T) {
 	jobs <- models.NotificationJob{Email: "user@example.com", Message: "hello"}
 	close(jobs)
 
-	err := NewNotifierWorker(sender).Start(context.Background(), jobs)
+	err := NewNotifierWorker(sender, logger.NewNoop(), metrics.NewNoop()).Start(context.Background(), jobs)
 	sender.AssertExpectations(t)
 
 	if err != nil {
@@ -42,7 +44,7 @@ func TestNotifier_ContinuesAfterSendFailure(t *testing.T) {
 	jobs <- models.NotificationJob{Email: "b@example.com", Message: "msg"}
 	close(jobs)
 
-	err := NewNotifierWorker(sender).Start(context.Background(), jobs)
+	err := NewNotifierWorker(sender, logger.NewNoop(), metrics.NewNoop()).Start(context.Background(), jobs)
 	sender.AssertExpectations(t)
 
 	if err != nil {
@@ -57,7 +59,7 @@ func TestNotifier_StopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := NewNotifierWorker(sender).Start(ctx, jobs)
+	err := NewNotifierWorker(sender, logger.NewNoop(), metrics.NewNoop()).Start(ctx, jobs)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

@@ -5,12 +5,14 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"subber/internal/config"
+	"subber/internal/logger"
 )
+
+var dbLog = logger.New().WithField("component", "database")
 
 //go:embed schemas.sql
 var schemaFS embed.FS
@@ -27,7 +29,7 @@ func Connect(cfg *config.Config) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 
-	log.Println("Database connection established")
+	dbLog.Info("database connection established")
 	return pool, nil
 }
 
@@ -42,7 +44,7 @@ func Migrate(pool *pgxpool.Pool) error {
 		return fmt.Errorf("apply schema: %w", err)
 	}
 
-	log.Println("Migrations applied successfully!")
+	dbLog.Info("migrations applied successfully")
 	return nil
 }
 
