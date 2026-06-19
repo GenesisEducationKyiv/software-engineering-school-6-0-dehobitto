@@ -9,6 +9,8 @@ services:
       - ../../deployments/docker/env/common.env.example
       - .env.example
     depends_on:
+      vector:
+        condition: service_started
       postgres-notifier:
         condition: service_healthy
 
@@ -22,6 +24,8 @@ services:
     ports:
       - "8082:8082"
     depends_on:
+      vector:
+        condition: service_started
       kafka-topics-init:
         condition: service_completed_successfully
       postgres-notifier:
@@ -41,6 +45,8 @@ services:
       - ../../deployments/docker/env/common.env.example
       - .env.example
     depends_on:
+      vector:
+        condition: service_started
       kafka-topics-init:
         condition: service_completed_successfully
       postgres-notifier:

@@ -9,6 +9,8 @@ services:
       - ../../deployments/docker/env/common.env.example
       - .env.example
     depends_on:
+      vector:
+        condition: service_started
       postgres-api:
         condition: service_healthy
 
@@ -22,6 +24,8 @@ services:
     ports:
       - "8080:8080"
     depends_on:
+      vector:
+        condition: service_started
       kafka-topics-init:
         condition: service_completed_successfully
       postgres-api:
@@ -39,6 +43,8 @@ services:
       - ../../deployments/docker/env/common.env.example
       - .env.example
     depends_on:
+      vector:
+        condition: service_started
       kafka-topics-init:
         condition: service_completed_successfully
       postgres-api:
