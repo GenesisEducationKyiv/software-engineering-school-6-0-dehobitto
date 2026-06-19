@@ -4,7 +4,7 @@ services:
       context: ../..
       dockerfile: services/subscription-api/Dockerfile
       args:
-        TARGET: ./services/subscription-api/cmd/migrate
+        TARGET: ./cmd/migrate
     env_file:
       - ../../deployments/docker/env/common.env.example
       - .env.example
@@ -34,7 +34,7 @@ services:
       context: ../..
       dockerfile: services/subscription-api/Dockerfile
       args:
-        TARGET: ./services/subscription-api/cmd/outbox-relay
+        TARGET: ./cmd/outbox-relay
     env_file:
       - ../../deployments/docker/env/common.env.example
       - .env.example

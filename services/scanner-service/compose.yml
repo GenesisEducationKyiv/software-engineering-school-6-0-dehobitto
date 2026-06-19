@@ -4,7 +4,7 @@ services:
       context: ../..
       dockerfile: services/scanner-service/Dockerfile
       args:
-        TARGET: ./services/scanner-service/cmd/migrate
+        TARGET: ./cmd/migrate
     env_file:
       - ../../deployments/docker/env/common.env.example
       - .env.example
@@ -36,7 +36,7 @@ services:
       context: ../..
       dockerfile: services/scanner-service/Dockerfile
       args:
-        TARGET: ./services/scanner-service/cmd/outbox-relay
+        TARGET: ./cmd/outbox-relay
     env_file:
       - ../../deployments/docker/env/common.env.example
       - .env.example
