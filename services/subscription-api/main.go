@@ -114,7 +114,12 @@ func run() error {
 		return srv.Shutdown(shutdownCtx)
 	})
 
-	releaseConsumer := kafka.NewConsumer(cfg.KafkaBrokers, contracts.TopicReleaseEvents, "subscription-api")
+	releaseConsumer := kafka.NewConsumerWithLogger(
+		cfg.KafkaBrokers,
+		contracts.TopicReleaseEvents,
+		"subscription-api",
+		log.WithField("component", "kafka-consumer").WithField("topic", contracts.TopicReleaseEvents),
+	)
 	defer releaseConsumer.Close() //nolint:errcheck
 	metricRegistry.MustRegister(kafka.NewConsumerLagGauge("subscription-api", contracts.TopicReleaseEvents, releaseConsumer))
 	group.Go(func() error {

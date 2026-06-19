@@ -35,10 +35,6 @@ type Consumer struct {
 	deadLetterPublisher DeadLetterPublisher
 }
 
-func NewConsumer(brokers []string, topic, groupID string) *Consumer {
-	return NewConsumerWithLogger(brokers, topic, groupID, nil)
-}
-
 func NewConsumerWithLogger(brokers []string, topic, groupID string, log logger.Logger) *Consumer {
 	if log == nil {
 		log = logger.NewNoop()
