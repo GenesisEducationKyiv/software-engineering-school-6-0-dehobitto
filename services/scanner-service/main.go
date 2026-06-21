@@ -67,13 +67,13 @@ func run() error {
 		return service.Start(ctx)
 	})
 
-	watchlistConsumer := kafka.NewConsumerWithLogger(cfg.KafkaBrokers, contracts.TopicWatchlistEvents, "scanner-service", log.WithField("component", "kafka-consumer").WithField("topic", contracts.TopicWatchlistEvents)).
-		WithDeadLetter(contracts.TopicWatchlistDLQ, producer)
+	watchlistConsumer := kafka.NewConsumerWithLogger(cfg.KafkaBrokers, contracts.TopicWatchlistCommands, "scanner-service", log.WithField("component", "kafka-consumer").WithField("topic", contracts.TopicWatchlistCommands)).
+		WithDeadLetter(contracts.TopicWatchlistCommandsDLQ, producer)
 	defer watchlistConsumer.Close() //nolint:errcheck
-	prometheus.MustRegister(kafka.NewConsumerLagGauge("scanner-service", contracts.TopicWatchlistEvents, watchlistConsumer))
+	prometheus.MustRegister(kafka.NewConsumerLagGauge("scanner-service", contracts.TopicWatchlistCommands, watchlistConsumer))
 	group.Go(func() error {
 		return watchlistConsumer.Start(ctx, func(ctx context.Context, _ string, value []byte) error {
-			return service.HandleWatchlistEvent(ctx, value)
+			return service.HandleWatchlistCommand(ctx, value)
 		})
 	})
 

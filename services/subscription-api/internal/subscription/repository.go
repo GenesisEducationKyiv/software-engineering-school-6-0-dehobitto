@@ -37,11 +37,7 @@ func (r *Repository) SubscriptionExists(ctx context.Context, email, repo string)
 	return exists, nil
 }
 
-func (r *Repository) SaveSubscription(ctx context.Context, sub Subscription) error {
-	return saveSubscription(ctx, r.pool, sub)
-}
-
-func (r *Repository) SaveSubscriptionWithConfirmation(ctx context.Context, sub Subscription, publisher NotificationPublisher) error {
+func (r *Repository) SaveSubscriptionWithConfirmationRequest(ctx context.Context, sub Subscription, publisher NotificationPublisher) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin subscription confirmation: %w", err)
@@ -143,7 +139,7 @@ func (r *Repository) ConfirmSubscriptionByToken(ctx context.Context, token strin
 	}
 
 	if !wasConfirmed && confirmedBefore == 0 {
-		if err := insertRepoWatchEvent(ctx, tx, contracts.EventRepoWatchStart, repo); err != nil {
+		if err := insertRepoWatchSagaRequest(ctx, tx, contracts.RepoWatchActionStart, repo); err != nil {
 			return err
 		}
 	}
@@ -173,7 +169,7 @@ func (r *Repository) Unsubscribe(ctx context.Context, token string) error {
 			return fmt.Errorf("count remaining confirmed subscriptions: %w", err)
 		}
 		if confirmedAfter == 0 {
-			if err := insertRepoWatchEvent(ctx, tx, contracts.EventRepoWatchStop, repo); err != nil {
+			if err := insertRepoWatchSagaRequest(ctx, tx, contracts.RepoWatchActionStop, repo); err != nil {
 				return err
 			}
 		}
@@ -181,34 +177,38 @@ func (r *Repository) Unsubscribe(ctx context.Context, token string) error {
 	return tx.Commit(ctx)
 }
 
-func insertRepoWatchEvent(ctx context.Context, tx pgx.Tx, eventType, repo string) error {
-	eventID := uuid.NewString()
-	correlationID := correlationIDFromContext(ctx, eventID)
+func insertRepoWatchSagaRequest(ctx context.Context, tx pgx.Tx, action, repo string) error {
+	sagaID := uuid.NewString()
+	correlationID := correlationIDFromContext(ctx, sagaID)
 	occurredAt := time.Now().UTC()
-	event, payload, err := buildRepoWatchEvent(eventType, repo, eventID, correlationID, occurredAt)
+	event, payload, err := buildRepoWatchSagaRequest(action, repo, sagaID, correlationID, occurredAt)
 	if err != nil {
-		return fmt.Errorf("marshal repo watch event: %w", err)
+		return fmt.Errorf("marshal repo watch saga request: %w", err)
 	}
 	return outbox.InsertTx(ctx, tx, outbox.Event{
-		EventID:       eventID,
+		EventID:       sagaID,
 		EventType:     event.EventType,
 		OccurredAt:    event.OccurredAt,
 		Source:        event.Source,
 		CorrelationID: correlationID,
-		Topic:         contracts.TopicWatchlistEvents,
+		Topic:         contracts.TopicWatchlistSagaRequests,
 		KafkaKey:      repo,
 		Payload:       payload,
 	})
 }
 
-func buildRepoWatchEvent(eventType, repo, eventID, correlationID string, occurredAt time.Time) (contracts.Envelope[contracts.RepoWatchPayload], []byte, error) {
-	event := contracts.Envelope[contracts.RepoWatchPayload]{
-		EventID:       eventID,
-		EventType:     eventType,
+func buildRepoWatchSagaRequest(action, repo, sagaID, correlationID string, occurredAt time.Time) (contracts.Envelope[contracts.RepoWatchSagaPayload], []byte, error) {
+	event := contracts.Envelope[contracts.RepoWatchSagaPayload]{
+		EventID:       sagaID,
+		EventType:     contracts.EventRepoWatchSagaRequested,
 		OccurredAt:    occurredAt,
 		Source:        "subscription-api",
 		CorrelationID: correlationID,
-		Payload:       contracts.RepoWatchPayload{Repo: repo},
+		Payload: contracts.RepoWatchSagaPayload{
+			SagaID: sagaID,
+			Action: action,
+			Repo:   repo,
+		},
 	}
 	raw, err := json.Marshal(event)
 	return event, raw, err

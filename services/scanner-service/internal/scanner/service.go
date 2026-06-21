@@ -19,8 +19,7 @@ type ReleaseProvider interface {
 
 type Store interface {
 	ClaimDue(ctx context.Context, limit int, nextScanIn time.Duration) ([]WatchedRepo, error)
-	StartWatching(ctx context.Context, repo string) error
-	StopWatching(ctx context.Context, repo string) error
+	ApplyWatchCommand(ctx context.Context, payload contracts.RepoWatchCommandPayload, correlationID string) error
 	MarkReleaseDetected(ctx context.Context, repo, tag, correlationID string) (bool, error)
 }
 
@@ -85,20 +84,28 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) HandleWatchlistEvent(ctx context.Context, value []byte) error {
-	var event contracts.Envelope[contracts.RepoWatchPayload]
+func (s *Service) HandleWatchlistCommand(ctx context.Context, value []byte) error {
+	var event contracts.Envelope[contracts.RepoWatchCommandPayload]
 	if err := json.Unmarshal(value, &event); err != nil {
-		return kafka.NonRetryable(fmt.Errorf("decode watchlist event: %w", err))
+		return kafka.NonRetryable(fmt.Errorf("decode watchlist command: %w", err))
 	}
 
 	switch event.EventType {
-	case contracts.EventRepoWatchStart:
-		return s.repo.StartWatching(ctx, event.Payload.Repo)
-	case contracts.EventRepoWatchStop:
-		return s.repo.StopWatching(ctx, event.Payload.Repo)
+	case contracts.EventStartWatchingRepo:
+		if event.Payload.Action != contracts.RepoWatchActionStart {
+			return kafka.NonRetryable(fmt.Errorf("start command action = %q", event.Payload.Action))
+		}
+	case contracts.EventStopWatchingRepo:
+		if event.Payload.Action != contracts.RepoWatchActionStop {
+			return kafka.NonRetryable(fmt.Errorf("stop command action = %q", event.Payload.Action))
+		}
 	default:
-		return kafka.NonRetryable(fmt.Errorf("unsupported watchlist event type %q", event.EventType))
+		return kafka.NonRetryable(fmt.Errorf("unsupported watchlist command type %q", event.EventType))
 	}
+	if event.Payload.SagaID == "" || event.Payload.Repo == "" {
+		return kafka.NonRetryable(fmt.Errorf("watchlist command requires saga_id and repo"))
+	}
+	return s.repo.ApplyWatchCommand(ctx, event.Payload, event.CorrelationID)
 }
 
 func (s *Service) scanRepo(ctx context.Context, watched WatchedRepo, correlationID string) error {

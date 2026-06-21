@@ -110,6 +110,7 @@ func (h handler) subscribe(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": "Subscription successful. Confirmation email sent."})
 		return
 	}
+
 	switch {
 	case errors.Is(err, subscription.ErrAlreadySubscribed):
 		h.observeSubscribe("already_subscribed")

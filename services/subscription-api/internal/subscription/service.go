@@ -24,7 +24,7 @@ type NotificationPublisher interface {
 
 type Store interface {
 	SubscriptionExists(ctx context.Context, email, repo string) (bool, error)
-	SaveSubscriptionWithConfirmation(ctx context.Context, sub Subscription, publisher NotificationPublisher) error
+	SaveSubscriptionWithConfirmationRequest(ctx context.Context, sub Subscription, publisher NotificationPublisher) error
 }
 
 type Service struct {
@@ -66,7 +66,7 @@ func (s *Service) Subscribe(ctx context.Context, email, repo string) error {
 		Token:       uuid.NewString(),
 		Confirmed:   false,
 	}
-	return s.repo.SaveSubscriptionWithConfirmation(ctx, sub, s.notifications)
+	return s.repo.SaveSubscriptionWithConfirmationRequest(ctx, sub, s.notifications)
 }
 
 func (s *Service) validateRepo(ctx context.Context, repo string) error {
