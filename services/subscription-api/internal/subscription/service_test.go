@@ -60,7 +60,7 @@ func (m *MockStore) EXPECT() *MockStoreMockRecorder {
 	return m.recorder
 }
 
-func (m *MockStore) SaveSubscriptionWithConfirmation(ctx context.Context, sub Subscription, publisher NotificationPublisher) error {
+func (m *MockStore) SaveSubscriptionWithConfirmationRequest(ctx context.Context, sub Subscription, publisher NotificationPublisher) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SaveSubscriptionWithConfirmation", ctx, sub, publisher)
 	ret0, _ := ret[0].(error)
@@ -69,7 +69,7 @@ func (m *MockStore) SaveSubscriptionWithConfirmation(ctx context.Context, sub Su
 
 func (mr *MockStoreMockRecorder) SaveSubscriptionWithConfirmation(ctx, sub, publisher interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSubscriptionWithConfirmation", reflect.TypeOf((*MockStore)(nil).SaveSubscriptionWithConfirmation), ctx, sub, publisher)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSubscriptionWithConfirmation", reflect.TypeOf((*MockStore)(nil).SaveSubscriptionWithConfirmationRequest), ctx, sub, publisher)
 }
 
 func (m *MockStore) SubscriptionExists(ctx context.Context, email, repo string) (bool, error) {

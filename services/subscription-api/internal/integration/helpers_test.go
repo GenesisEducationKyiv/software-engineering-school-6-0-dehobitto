@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -67,15 +69,59 @@ type testEnv struct {
 	pool   *pgxpool.Pool
 }
 
-func newTestEnv(t *testing.T, fake gitHubFake) *testEnv {
+type MockGitHubClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockGitHubClientMockRecorder
+}
+
+type MockGitHubClientMockRecorder struct {
+	mock *MockGitHubClient
+}
+
+func NewMockGitHubClient(ctrl *gomock.Controller) *MockGitHubClient {
+	mock := &MockGitHubClient{ctrl: ctrl}
+	mock.recorder = &MockGitHubClientMockRecorder{mock}
+	return mock
+}
+
+func (m *MockGitHubClient) EXPECT() *MockGitHubClientMockRecorder {
+	return m.recorder
+}
+
+func (m *MockGitHubClient) CheckIfRepoExists(ctx context.Context, repo string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CheckIfRepoExists", ctx, repo)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockGitHubClientMockRecorder) CheckIfRepoExists(ctx, repo interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckIfRepoExists", reflect.TypeOf((*MockGitHubClient)(nil).CheckIfRepoExists), ctx, repo)
+}
+
+func (m *MockGitHubClient) GetLatestTag(ctx context.Context, repo string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestTag", ctx, repo)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockGitHubClientMockRecorder) GetLatestTag(ctx, repo interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestTag", reflect.TypeOf((*MockGitHubClient)(nil).GetLatestTag), ctx, repo)
+}
+
+func newTestEnv(t *testing.T, github subscription.GitHubClient) *testEnv {
 	t.Helper()
-	if _, err := sharedPool.Exec(context.Background(), "TRUNCATE TABLE subscriptions, outbox_events"); err != nil {
+	if _, err := sharedPool.Exec(context.Background(), "TRUNCATE TABLE subscriptions, saga_instances, outbox_events"); err != nil {
 		t.Fatalf("truncate tables: %v", err)
 	}
 
 	repo := subscription.NewRepository(sharedPool)
 	publisher := subscription.NewOutboxNotificationPublisher(sharedPool, "http://localhost:8080")
-	svc := subscription.NewService(repo, publisher, fake, nil)
+	svc := subscription.NewService(repo, publisher, github, nil)
 
 	gin.SetMode(gin.TestMode)
 	router := httpapi.SetupRouter(httpapi.RouterDeps{
@@ -86,6 +132,15 @@ func newTestEnv(t *testing.T, fake gitHubFake) *testEnv {
 	})
 
 	return &testEnv{router: router, pool: sharedPool}
+}
+
+func newGitHubMock(t *testing.T, existsErr error, tag string, tagErr error) *MockGitHubClient {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	github := NewMockGitHubClient(ctrl)
+	github.EXPECT().CheckIfRepoExists(gomock.Any(), gomock.Any()).Return(existsErr).AnyTimes()
+	github.EXPECT().GetLatestTag(gomock.Any(), gomock.Any()).Return(tag, tagErr).AnyTimes()
+	return github
 }
 
 func (e *testEnv) subscribe(t *testing.T, email, repo string, apiKey string) *httptest.ResponseRecorder {
@@ -182,20 +237,6 @@ func outboxCount(t *testing.T, eventType, topic string) int {
 		t.Fatalf("outbox count query: %v", err)
 	}
 	return count
-}
-
-type gitHubFake struct {
-	existsErr error
-	tag       string
-	tagErr    error
-}
-
-func (g gitHubFake) CheckIfRepoExists(context.Context, string) error {
-	return g.existsErr
-}
-
-func (g gitHubFake) GetLatestTag(context.Context, string) (string, error) {
-	return g.tag, g.tagErr
 }
 
 func githubError(status int) error {
