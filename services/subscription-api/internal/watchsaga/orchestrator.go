@@ -135,17 +135,26 @@ func (o *Orchestrator) HandleAck(ctx context.Context, event contracts.Envelope[c
 
 	switch event.EventType {
 	case contracts.EventRepoWatchStarted, contracts.EventRepoWatchStopped:
-		ackEventType, err := repoWatchAckEventType(instance.Action)
-		if err != nil {
-			return err
-		}
-		if event.EventType != ackEventType {
-			return fmt.Errorf("unexpected saga ack event type %q for action %q", event.EventType, instance.Action)
-		}
-		if instance.Status == StatusCompleted || instance.Status == StatusFailed {
-			return tx.Commit(ctx)
-		}
-		tag, err := tx.Exec(ctx, `
+		return o.handleSuccessAck(ctx, tx, event, instance)
+	case contracts.EventRepoWatchFailed:
+		return o.handleFailedAck(ctx, tx, event, instance)
+	default:
+		return fmt.Errorf("unsupported saga ack event type %q", event.EventType)
+	}
+}
+
+func (o *Orchestrator) handleSuccessAck(ctx context.Context, tx pgx.Tx, event contracts.Envelope[contracts.RepoWatchAckPayload], instance Instance) error {
+	ackEventType, err := repoWatchAckEventType(instance.Action)
+	if err != nil {
+		return err
+	}
+	if event.EventType != ackEventType {
+		return fmt.Errorf("unexpected saga ack event type %q for action %q", event.EventType, instance.Action)
+	}
+	if instance.Status == StatusCompleted || instance.Status == StatusFailed {
+		return tx.Commit(ctx)
+	}
+	tag, err := tx.Exec(ctx, `
 UPDATE saga_instances
 SET status = $2,
 	last_error = NULL,
@@ -155,24 +164,25 @@ WHERE saga_id = $1
 	AND action = $4
 	AND status NOT IN ($5, $6)
 `, event.Payload.SagaID, StatusCompleted, instance.Repo, instance.Action, StatusCompleted, StatusFailed)
-		if err != nil {
-			return fmt.Errorf("complete saga instance: %w", err)
-		}
-		if tag.RowsAffected() == 0 {
-			return fmt.Errorf("saga instance %s was not updated", event.Payload.SagaID)
-		}
+	if err != nil {
+		return fmt.Errorf("complete saga instance: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("saga instance %s was not updated", event.Payload.SagaID)
+	}
+	return tx.Commit(ctx)
+}
+
+func (o *Orchestrator) handleFailedAck(ctx context.Context, tx pgx.Tx, event contracts.Envelope[contracts.RepoWatchAckPayload], instance Instance) error {
+	now := o.now()
+	nextRetryAt := now.Add(retryDelay(1))
+	if event.Payload.Error == "" {
+		event.Payload.Error = "watch command failed"
+	}
+	if instance.Status == StatusCompleted || instance.Status == StatusFailed {
 		return tx.Commit(ctx)
-	case contracts.EventRepoWatchFailed:
-		now := o.now()
-		status := StatusRetrying
-		nextRetryAt := now.Add(retryDelay(1))
-		if event.Payload.Error == "" {
-			event.Payload.Error = "watch command failed"
-		}
-		if instance.Status == StatusCompleted || instance.Status == StatusFailed {
-			return tx.Commit(ctx)
-		}
-		tag, err := tx.Exec(ctx, `
+	}
+	tag, err := tx.Exec(ctx, `
 UPDATE saga_instances
 SET status = CASE WHEN deadline_at <= $2 THEN $3 ELSE $4 END,
 	next_retry_at = CASE WHEN deadline_at <= $2 THEN NULL::timestamptz ELSE $5::timestamptz END,
@@ -182,17 +192,14 @@ WHERE saga_id = $1
 	AND repo = $7
 	AND action = $8
 	AND status NOT IN ($3, $9)
-`, event.Payload.SagaID, now, StatusFailed, status, nextRetryAt, event.Payload.Error, instance.Repo, instance.Action, StatusCompleted)
-		if err != nil {
-			return fmt.Errorf("mark saga failed ack: %w", err)
-		}
-		if tag.RowsAffected() == 0 {
-			return fmt.Errorf("saga instance %s was not updated", event.Payload.SagaID)
-		}
-		return tx.Commit(ctx)
-	default:
-		return fmt.Errorf("unsupported saga ack event type %q", event.EventType)
+`, event.Payload.SagaID, now, StatusFailed, StatusRetrying, nextRetryAt, event.Payload.Error, instance.Repo, instance.Action, StatusCompleted)
+	if err != nil {
+		return fmt.Errorf("mark saga failed ack: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("saga instance %s was not updated", event.Payload.SagaID)
+	}
+	return tx.Commit(ctx)
 }
 
 func (o *Orchestrator) RetryDue(ctx context.Context, limit int) error {

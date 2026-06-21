@@ -118,7 +118,7 @@ func (r *Repository) ApplyWatchCommand(ctx context.Context, payload contracts.Re
 	if operationErr != nil {
 		_ = tx.Rollback(ctx)
 		if ackErr := r.insertWatchAck(ctx, payload, correlationID, operationErr); ackErr != nil {
-			return fmt.Errorf("%w; publish failure ack: %v", operationErr, ackErr)
+			return fmt.Errorf("%w; publish failure ack: %w", operationErr, ackErr)
 		}
 		return nil
 	}
