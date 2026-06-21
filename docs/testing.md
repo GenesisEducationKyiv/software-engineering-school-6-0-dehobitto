@@ -63,8 +63,9 @@ Kafka E2E verifies the asynchronous business flow:
 ```text
 subscribe
 -> confirm
--> RepoWatchStartRequested
--> scanner watchlist
+-> RepoWatchSagaRequested
+-> StartWatchingRepo
+-> RepoWatchStarted
 -> ReleaseDetected
 -> NotificationSendRequested
 -> notification-service sent delivery

@@ -3,13 +3,27 @@ info:
   title: Subber Kafka Contracts
   version: 1.0.0
 channels:
-  watchlistEvents:
-    address: subber.watchlist.events
+  watchlistSagaRequests:
+    address: subber.watchlist.saga.requests
     messages:
-      RepoWatchStartRequested:
-        $ref: '#/components/messages/RepoWatchStartRequested'
-      RepoWatchStopRequested:
-        $ref: '#/components/messages/RepoWatchStopRequested'
+      RepoWatchSagaRequested:
+        $ref: '#/components/messages/RepoWatchSagaRequested'
+  watchlistSagaCommands:
+    address: subber.watchlist.saga.commands
+    messages:
+      StartWatchingRepo:
+        $ref: '#/components/messages/StartWatchingRepo'
+      StopWatchingRepo:
+        $ref: '#/components/messages/StopWatchingRepo'
+  watchlistSagaEvents:
+    address: subber.watchlist.saga.events
+    messages:
+      RepoWatchStarted:
+        $ref: '#/components/messages/RepoWatchStarted'
+      RepoWatchStopped:
+        $ref: '#/components/messages/RepoWatchStopped'
+      RepoWatchFailed:
+        $ref: '#/components/messages/RepoWatchFailed'
   releaseEvents:
     address: subber.release.events
     messages:
@@ -36,14 +50,30 @@ channels:
       NotificationSendRequested:
         $ref: '#/components/messages/NotificationSendRequested'
 operations:
-  publishWatchlistEvents:
+  publishWatchlistSagaRequests:
     action: send
     channel:
-      $ref: '#/channels/watchlistEvents'
-  consumeWatchlistEvents:
+      $ref: '#/channels/watchlistSagaRequests'
+  consumeWatchlistSagaRequests:
     action: receive
     channel:
-      $ref: '#/channels/watchlistEvents'
+      $ref: '#/channels/watchlistSagaRequests'
+  publishWatchlistCommands:
+    action: send
+    channel:
+      $ref: '#/channels/watchlistSagaCommands'
+  consumeWatchlistCommands:
+    action: receive
+    channel:
+      $ref: '#/channels/watchlistSagaCommands'
+  publishWatchlistSagaEvents:
+    action: send
+    channel:
+      $ref: '#/channels/watchlistSagaEvents'
+  consumeWatchlistSagaEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/watchlistSagaEvents'
   publishReleaseEvents:
     action: send
     channel:
@@ -62,16 +92,36 @@ operations:
       $ref: '#/channels/notificationCommands'
 components:
   messages:
-    RepoWatchStartRequested:
-      name: RepoWatchStartRequested
+    RepoWatchSagaRequested:
+      name: RepoWatchSagaRequested
       x-kafka-key: repo
       payload:
-        $ref: '#/components/schemas/RepoWatchEnvelope'
-    RepoWatchStopRequested:
-      name: RepoWatchStopRequested
+        $ref: '#/components/schemas/RepoWatchSagaEnvelope'
+    StartWatchingRepo:
+      name: StartWatchingRepo
       x-kafka-key: repo
       payload:
-        $ref: '#/components/schemas/RepoWatchEnvelope'
+        $ref: '#/components/schemas/RepoWatchCommandEnvelope'
+    StopWatchingRepo:
+      name: StopWatchingRepo
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/RepoWatchCommandEnvelope'
+    RepoWatchStarted:
+      name: RepoWatchStarted
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/RepoWatchAckEnvelope'
+    RepoWatchStopped:
+      name: RepoWatchStopped
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/RepoWatchAckEnvelope'
+    RepoWatchFailed:
+      name: RepoWatchFailed
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/RepoWatchAckEnvelope'
     ReleaseDetected:
       name: ReleaseDetected
       x-kafka-key: repo
@@ -106,13 +156,27 @@ components:
         correlation_id:
           type: string
           format: uuid
-    RepoWatchEnvelope:
+    RepoWatchSagaEnvelope:
       allOf:
         - $ref: '#/components/schemas/EnvelopeBase'
         - type: object
           properties:
             payload:
-              $ref: '#/components/schemas/RepoWatchPayload'
+              $ref: '#/components/schemas/RepoWatchSagaPayload'
+    RepoWatchCommandEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            payload:
+              $ref: '#/components/schemas/RepoWatchCommandPayload'
+    RepoWatchAckEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            payload:
+              $ref: '#/components/schemas/RepoWatchAckPayload'
     ReleaseDetectedEnvelope:
       allOf:
         - $ref: '#/components/schemas/EnvelopeBase'
@@ -127,14 +191,57 @@ components:
           properties:
             payload:
               $ref: '#/components/schemas/NotificationSendRequestedPayload'
-    RepoWatchPayload:
+    RepoWatchSagaPayload:
       type: object
       required:
+        - saga_id
+        - action
         - repo
       properties:
+        saga_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum: [start_watch, stop_watch]
         repo:
           type: string
           example: gin-gonic/gin
+    RepoWatchCommandPayload:
+      type: object
+      required:
+        - saga_id
+        - action
+        - repo
+      properties:
+        saga_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum: [start_watch, stop_watch]
+        repo:
+          type: string
+          example: gin-gonic/gin
+    RepoWatchAckPayload:
+      type: object
+      required:
+        - saga_id
+        - action
+        - repo
+      properties:
+        saga_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum: [start_watch, stop_watch]
+        repo:
+          type: string
+          example: gin-gonic/gin
+        error:
+          type: string
+          description: Present only for RepoWatchFailed.
     ReleaseDetectedPayload:
       type: object
       required:

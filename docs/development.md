@@ -69,8 +69,10 @@ POST /api/subscribe
 -> outbox relay publishes to Kafka
 -> notification-service sends confirmation email
 -> user confirms subscription
--> subscription-api writes RepoWatchStartRequested
--> scanner-service stores repo in watchlist
+-> subscription-api writes RepoWatchSagaRequested
+-> subscription-api-saga-orchestrator writes StartWatchingRepo
+-> scanner-service stores repo in watchlist and writes RepoWatchStarted
+-> subscription-api-saga-orchestrator marks saga completed
 -> scanner-service detects ReleaseDetected
 -> subscription-api expands release to NotificationSendRequested per subscriber
 -> notification-service sends release emails
