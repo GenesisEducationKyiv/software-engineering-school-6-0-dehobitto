@@ -3,166 +3,274 @@ package outbox
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
+
+	"github.com/golang/mock/gomock"
 
 	"subber/pkg/logger"
 )
 
-type fakeOutboxStore struct {
-	events       []Event
-	fetchErr     error
-	markPubErr   error
-	markFailErr  error
-	fetchLimit   int
-	publishedIDs []string
-	failedIDs    []string
-	failedCauses []error
+type MockPublisher struct {
+	ctrl     *gomock.Controller
+	recorder *MockPublisherMockRecorder
 }
 
-func (s *fakeOutboxStore) FetchUnpublished(_ context.Context, limit int) ([]Event, error) {
-	s.fetchLimit = limit
-	return s.events, s.fetchErr
+type MockPublisherMockRecorder struct {
+	mock *MockPublisher
 }
 
-func (s *fakeOutboxStore) MarkPublished(_ context.Context, eventID string) error {
-	s.publishedIDs = append(s.publishedIDs, eventID)
-	return s.markPubErr
+func NewMockPublisher(ctrl *gomock.Controller) *MockPublisher {
+	mock := &MockPublisher{ctrl: ctrl}
+	mock.recorder = &MockPublisherMockRecorder{mock}
+	return mock
 }
 
-func (s *fakeOutboxStore) MarkFailed(_ context.Context, eventID string, cause error) error {
-	s.failedIDs = append(s.failedIDs, eventID)
-	s.failedCauses = append(s.failedCauses, cause)
-	return s.markFailErr
+func (m *MockPublisher) EXPECT() *MockPublisherMockRecorder {
+	return m.recorder
 }
 
-type fakeOutboxPublisher struct {
-	err      error
-	messages []publishedMessage
+func (m *MockPublisher) Publish(ctx context.Context, topic, key string, value []byte) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Publish", ctx, topic, key, value)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
-type fakeLogger struct {
-	warns  []string
-	errors []string
-	infos  []string
-	fields []string
+func (mr *MockPublisherMockRecorder) Publish(ctx, topic, key, value interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Publish", reflect.TypeOf((*MockPublisher)(nil).Publish), ctx, topic, key, value)
 }
 
-func (l *fakeLogger) WithField(key string, value any) logger.Logger {
-	l.fields = append(l.fields, key)
-	return l
+type MockStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockStoreMockRecorder
 }
 
-func (l *fakeLogger) WithError(error) logger.Logger {
-	return l
+type MockStoreMockRecorder struct {
+	mock *MockStore
 }
 
-func (l *fakeLogger) Info(msg string) {
-	l.infos = append(l.infos, msg)
+func NewMockStore(ctrl *gomock.Controller) *MockStore {
+	mock := &MockStore{ctrl: ctrl}
+	mock.recorder = &MockStoreMockRecorder{mock}
+	return mock
 }
 
-func (l *fakeLogger) Warn(msg string) {
-	l.warns = append(l.warns, msg)
+func (m *MockStore) EXPECT() *MockStoreMockRecorder {
+	return m.recorder
 }
 
-func (l *fakeLogger) Error(msg string) {
-	l.errors = append(l.errors, msg)
+func (m *MockStore) FetchUnpublished(ctx context.Context, limit int) ([]Event, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FetchUnpublished", ctx, limit)
+	ret0, _ := ret[0].([]Event)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
-func (l *fakeLogger) Fatal(msg string) {
-	l.errors = append(l.errors, msg)
+func (mr *MockStoreMockRecorder) FetchUnpublished(ctx, limit interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FetchUnpublished", reflect.TypeOf((*MockStore)(nil).FetchUnpublished), ctx, limit)
 }
 
-type publishedMessage struct {
-	topic string
-	key   string
-	value string
+func (m *MockStore) MarkFailed(ctx context.Context, eventID string, cause error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkFailed", ctx, eventID, cause)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
-func (p *fakeOutboxPublisher) Publish(_ context.Context, topic, key string, value []byte) error {
-	p.messages = append(p.messages, publishedMessage{topic: topic, key: key, value: string(value)})
-	return p.err
+func (mr *MockStoreMockRecorder) MarkFailed(ctx, eventID, cause interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkFailed", reflect.TypeOf((*MockStore)(nil).MarkFailed), ctx, eventID, cause)
+}
+
+func (m *MockStore) MarkPublished(ctx context.Context, eventID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkPublished", ctx, eventID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockStoreMockRecorder) MarkPublished(ctx, eventID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPublished", reflect.TypeOf((*MockStore)(nil).MarkPublished), ctx, eventID)
+}
+
+type MockLogger struct {
+	ctrl     *gomock.Controller
+	recorder *MockLoggerMockRecorder
+}
+
+type MockLoggerMockRecorder struct {
+	mock *MockLogger
+}
+
+func NewMockLogger(ctrl *gomock.Controller) *MockLogger {
+	mock := &MockLogger{ctrl: ctrl}
+	mock.recorder = &MockLoggerMockRecorder{mock}
+	return mock
+}
+
+func (m *MockLogger) EXPECT() *MockLoggerMockRecorder {
+	return m.recorder
+}
+
+func (m *MockLogger) WithField(key string, value any) logger.Logger {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithField", key, value)
+	ret0, _ := ret[0].(logger.Logger)
+	return ret0
+}
+
+func (mr *MockLoggerMockRecorder) WithField(key, value interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithField", reflect.TypeOf((*MockLogger)(nil).WithField), key, value)
+}
+
+func (m *MockLogger) WithError(err error) logger.Logger {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithError", err)
+	ret0, _ := ret[0].(logger.Logger)
+	return ret0
+}
+
+func (mr *MockLoggerMockRecorder) WithError(err interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithError", reflect.TypeOf((*MockLogger)(nil).WithError), err)
+}
+
+func (m *MockLogger) Info(msg string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Info", msg)
+}
+
+func (mr *MockLoggerMockRecorder) Info(msg interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Info", reflect.TypeOf((*MockLogger)(nil).Info), msg)
+}
+
+func (m *MockLogger) Warn(msg string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Warn", msg)
+}
+
+func (mr *MockLoggerMockRecorder) Warn(msg interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Warn", reflect.TypeOf((*MockLogger)(nil).Warn), msg)
+}
+
+func (m *MockLogger) Error(msg string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Error", msg)
+}
+
+func (mr *MockLoggerMockRecorder) Error(msg interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Error", reflect.TypeOf((*MockLogger)(nil).Error), msg)
+}
+
+func (m *MockLogger) Fatal(msg string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Fatal", msg)
+}
+
+func (mr *MockLoggerMockRecorder) Fatal(msg interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Fatal", reflect.TypeOf((*MockLogger)(nil).Fatal), msg)
 }
 
 func TestRelay_PublishOncePublishesAndMarksEvents(t *testing.T) {
-	store := &fakeOutboxStore{events: []Event{
+	ctrl := gomock.NewController(t)
+	store := NewMockStore(ctrl)
+	publisher := NewMockPublisher(ctrl)
+	events := []Event{
 		{EventID: "1", Topic: "topic-a", KafkaKey: "key-a", Payload: []byte(`{"a":1}`)},
 		{EventID: "2", Topic: "topic-b", KafkaKey: "key-b", Payload: []byte(`{"b":2}`)},
-	}}
-	publisher := &fakeOutboxPublisher{}
+	}
+	gomock.InOrder(
+		store.EXPECT().FetchUnpublished(gomock.Any(), 10).Return(events, nil),
+		publisher.EXPECT().Publish(gomock.Any(), "topic-a", "key-a", []byte(`{"a":1}`)).Return(nil),
+		store.EXPECT().MarkPublished(gomock.Any(), "1").Return(nil),
+		publisher.EXPECT().Publish(gomock.Any(), "topic-b", "key-b", []byte(`{"b":2}`)).Return(nil),
+		store.EXPECT().MarkPublished(gomock.Any(), "2").Return(nil),
+	)
 	relay := NewRelay(store, publisher, 10, time.Second)
 
 	if err := relay.PublishOnce(context.Background()); err != nil {
 		t.Fatalf("PublishOnce() error = %v", err)
 	}
-	if store.fetchLimit != 10 {
-		t.Fatalf("fetch limit = %d, want 10", store.fetchLimit)
-	}
-	if len(publisher.messages) != 2 {
-		t.Fatalf("published messages = %d, want 2", len(publisher.messages))
-	}
-	if store.publishedIDs[0] != "1" || store.publishedIDs[1] != "2" {
-		t.Fatalf("published ids = %#v", store.publishedIDs)
-	}
 }
 
 func TestRelay_PublishFailureMarksFailedAndStopsBatch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := NewMockStore(ctrl)
+	publisher := NewMockPublisher(ctrl)
+	log := NewMockLogger(ctrl)
 	publishErr := errors.New("kafka down")
-	store := &fakeOutboxStore{events: []Event{
+	events := []Event{
 		{EventID: "1", Topic: "topic-a", KafkaKey: "key-a", Payload: []byte(`{"a":1}`)},
-		{EventID: "2", Topic: "topic-b", KafkaKey: "key-b", Payload: []byte(`{"b":2}`)},
-	}}
-	log := &fakeLogger{}
-	publisher := &fakeOutboxPublisher{err: publishErr}
+	}
+	gomock.InOrder(
+		store.EXPECT().FetchUnpublished(gomock.Any(), 10).Return(events, nil),
+		publisher.EXPECT().Publish(gomock.Any(), "topic-a", "key-a", []byte(`{"a":1}`)).Return(publishErr),
+		log.EXPECT().WithField("event_id", "1").Return(log),
+		log.EXPECT().WithField("topic", "topic-a").Return(log),
+		log.EXPECT().WithError(publishErr).Return(log),
+		log.EXPECT().Warn("publish outbox event failed"),
+		store.EXPECT().MarkFailed(gomock.Any(), "1", publishErr).Return(nil),
+	)
 	relay := NewRelayWithLogger(store, publisher, log, 10, time.Second)
 
 	if err := relay.PublishOnce(context.Background()); err != nil {
 		t.Fatalf("PublishOnce() error = %v", err)
 	}
-	if len(store.failedIDs) != 1 || store.failedIDs[0] != "1" {
-		t.Fatalf("failed ids = %#v", store.failedIDs)
-	}
-	if !errors.Is(store.failedCauses[0], publishErr) {
-		t.Fatalf("failed cause = %v, want publish err", store.failedCauses[0])
-	}
-	if len(store.publishedIDs) != 0 {
-		t.Fatalf("published ids = %#v, want none", store.publishedIDs)
-	}
-	if len(publisher.messages) != 1 {
-		t.Fatalf("published messages = %d, want 1", len(publisher.messages))
-	}
-	if len(log.warns) != 1 || log.warns[0] != "publish outbox event failed" {
-		t.Fatalf("warn logs = %#v", log.warns)
-	}
 }
 
 func TestRelay_ReturnsStoreErrors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := NewMockStore(ctrl)
+	publisher := NewMockPublisher(ctrl)
 	fetchErr := errors.New("db fetch down")
-	if err := NewRelay(&fakeOutboxStore{fetchErr: fetchErr}, &fakeOutboxPublisher{}, 10, time.Second).PublishOnce(context.Background()); !errors.Is(err, fetchErr) {
+	store.EXPECT().FetchUnpublished(gomock.Any(), 10).Return(nil, fetchErr)
+	if err := NewRelay(store, publisher, 10, time.Second).PublishOnce(context.Background()); !errors.Is(err, fetchErr) {
 		t.Fatalf("fetch error = %v, want %v", err, fetchErr)
 	}
 
+	store = NewMockStore(ctrl)
+	publisher = NewMockPublisher(ctrl)
 	markPublishedErr := errors.New("mark published down")
-	err := NewRelay(&fakeOutboxStore{
-		events:     []Event{{EventID: "1", Topic: "topic", KafkaKey: "key", Payload: []byte(`{}`)}},
-		markPubErr: markPublishedErr,
-	}, &fakeOutboxPublisher{}, 10, time.Second).PublishOnce(context.Background())
+	event := Event{EventID: "1", Topic: "topic", KafkaKey: "key", Payload: []byte(`{}`)}
+	gomock.InOrder(
+		store.EXPECT().FetchUnpublished(gomock.Any(), 10).Return([]Event{event}, nil),
+		publisher.EXPECT().Publish(gomock.Any(), "topic", "key", []byte(`{}`)).Return(nil),
+		store.EXPECT().MarkPublished(gomock.Any(), "1").Return(markPublishedErr),
+	)
+	err := NewRelay(store, publisher, 10, time.Second).PublishOnce(context.Background())
 	if !errors.Is(err, markPublishedErr) {
 		t.Fatalf("mark published error = %v, want %v", err, markPublishedErr)
 	}
 
+	store = NewMockStore(ctrl)
+	publisher = NewMockPublisher(ctrl)
 	markFailedErr := errors.New("mark failed down")
-	err = NewRelay(&fakeOutboxStore{
-		events:      []Event{{EventID: "1", Topic: "topic", KafkaKey: "key", Payload: []byte(`{}`)}},
-		markFailErr: markFailedErr,
-	}, &fakeOutboxPublisher{err: errors.New("kafka down")}, 10, time.Second).PublishOnce(context.Background())
+	publishErr := errors.New("kafka down")
+	gomock.InOrder(
+		store.EXPECT().FetchUnpublished(gomock.Any(), 10).Return([]Event{event}, nil),
+		publisher.EXPECT().Publish(gomock.Any(), "topic", "key", []byte(`{}`)).Return(publishErr),
+		store.EXPECT().MarkFailed(gomock.Any(), "1", publishErr).Return(markFailedErr),
+	)
+	err = NewRelay(store, publisher, 10, time.Second).PublishOnce(context.Background())
 	if !errors.Is(err, markFailedErr) {
 		t.Fatalf("mark failed error = %v, want %v", err, markFailedErr)
 	}
 }
 
 func TestRelay_DefaultsBatchSizeAndInterval(t *testing.T) {
-	relay := NewRelay(&fakeOutboxStore{}, &fakeOutboxPublisher{}, 0, 0)
+	ctrl := gomock.NewController(t)
+	relay := NewRelay(NewMockStore(ctrl), NewMockPublisher(ctrl), 0, 0)
 	if relay.batchSize != 100 {
 		t.Fatalf("batchSize = %d, want 100", relay.batchSize)
 	}

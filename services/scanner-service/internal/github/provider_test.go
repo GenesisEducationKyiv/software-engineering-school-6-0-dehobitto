@@ -3,40 +3,94 @@ package github
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
+
+	"github.com/golang/mock/gomock"
 )
 
-type fakeCache struct {
-	value string
-	gets  int
-	sets  int
+type MockCache struct {
+	ctrl     *gomock.Controller
+	recorder *MockCacheMockRecorder
 }
 
-func (c *fakeCache) Get(context.Context, string) (string, error) {
-	c.gets++
-	return c.value, nil
+type MockCacheMockRecorder struct {
+	mock *MockCache
 }
 
-func (c *fakeCache) Set(context.Context, string, string, time.Duration) error {
-	c.sets++
-	return nil
+func NewMockCache(ctrl *gomock.Controller) *MockCache {
+	mock := &MockCache{ctrl: ctrl}
+	mock.recorder = &MockCacheMockRecorder{mock}
+	return mock
 }
 
-type fakeProvider struct {
-	tag   string
-	err   error
-	calls int
+func (m *MockCache) EXPECT() *MockCacheMockRecorder {
+	return m.recorder
 }
 
-func (p *fakeProvider) GetLatestTag(context.Context, string) (string, error) {
-	p.calls++
-	return p.tag, p.err
+func (m *MockCache) Get(ctx context.Context, key string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, key)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockCacheMockRecorder) Get(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockCache)(nil).Get), ctx, key)
+}
+
+func (m *MockCache) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Set", ctx, key, value, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockCacheMockRecorder) Set(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockCache)(nil).Set), ctx, key, value, ttl)
+}
+
+type MockReleaseProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockReleaseProviderMockRecorder
+}
+
+type MockReleaseProviderMockRecorder struct {
+	mock *MockReleaseProvider
+}
+
+func NewMockReleaseProvider(ctrl *gomock.Controller) *MockReleaseProvider {
+	mock := &MockReleaseProvider{ctrl: ctrl}
+	mock.recorder = &MockReleaseProviderMockRecorder{mock}
+	return mock
+}
+
+func (m *MockReleaseProvider) EXPECT() *MockReleaseProviderMockRecorder {
+	return m.recorder
+}
+
+func (m *MockReleaseProvider) GetLatestTag(ctx context.Context, repo string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestTag", ctx, repo)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockReleaseProviderMockRecorder) GetLatestTag(ctx, repo interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestTag", reflect.TypeOf((*MockReleaseProvider)(nil).GetLatestTag), ctx, repo)
 }
 
 func TestCachedReleaseProvider_CacheHitAvoidsGitHub(t *testing.T) {
-	cache := &fakeCache{value: "v1.0.0"}
-	next := &fakeProvider{tag: "v2.0.0"}
+	ctrl := gomock.NewController(t)
+	cache := NewMockCache(ctrl)
+	next := NewMockReleaseProvider(ctrl)
+	cache.EXPECT().Get(gomock.Any(), "github:latest_tag:owner/repo").Return("v1.0.0", nil)
 	provider := NewCachedReleaseProvider(cache, next, time.Minute, nil)
 
 	tag, err := provider.GetLatestTag(context.Background(), "owner/repo")
@@ -46,14 +100,17 @@ func TestCachedReleaseProvider_CacheHitAvoidsGitHub(t *testing.T) {
 	if tag != "v1.0.0" {
 		t.Fatalf("tag = %q, want v1.0.0", tag)
 	}
-	if next.calls != 0 {
-		t.Fatalf("next calls = %d, want 0", next.calls)
-	}
 }
 
 func TestCachedReleaseProvider_CacheMissCallsGitHubAndStores(t *testing.T) {
-	cache := &fakeCache{}
-	next := &fakeProvider{tag: "v2.0.0"}
+	ctrl := gomock.NewController(t)
+	cache := NewMockCache(ctrl)
+	next := NewMockReleaseProvider(ctrl)
+	gomock.InOrder(
+		cache.EXPECT().Get(gomock.Any(), "github:latest_tag:owner/repo").Return("", nil),
+		next.EXPECT().GetLatestTag(gomock.Any(), "owner/repo").Return("v2.0.0", nil),
+		cache.EXPECT().Set(gomock.Any(), "github:latest_tag:owner/repo", "v2.0.0", time.Minute).Return(nil),
+	)
 	provider := NewCachedReleaseProvider(cache, next, time.Minute, nil)
 
 	tag, err := provider.GetLatestTag(context.Background(), "owner/repo")
@@ -63,20 +120,20 @@ func TestCachedReleaseProvider_CacheMissCallsGitHubAndStores(t *testing.T) {
 	if tag != "v2.0.0" {
 		t.Fatalf("tag = %q, want v2.0.0", tag)
 	}
-	if next.calls != 1 || cache.sets != 1 {
-		t.Fatalf("next calls/cache sets = %d/%d, want 1/1", next.calls, cache.sets)
-	}
 }
 
 func TestCachedReleaseProvider_DoesNotCacheErrors(t *testing.T) {
-	cache := &fakeCache{}
-	next := &fakeProvider{err: errors.New("github down")}
+	ctrl := gomock.NewController(t)
+	cache := NewMockCache(ctrl)
+	next := NewMockReleaseProvider(ctrl)
+	githubErr := errors.New("github down")
+	gomock.InOrder(
+		cache.EXPECT().Get(gomock.Any(), "github:latest_tag:owner/repo").Return("", nil),
+		next.EXPECT().GetLatestTag(gomock.Any(), "owner/repo").Return("", githubErr),
+	)
 	provider := NewCachedReleaseProvider(cache, next, time.Minute, nil)
 
 	if _, err := provider.GetLatestTag(context.Background(), "owner/repo"); err == nil {
 		t.Fatal("expected error")
-	}
-	if cache.sets != 0 {
-		t.Fatalf("cache sets = %d, want 0", cache.sets)
 	}
 }

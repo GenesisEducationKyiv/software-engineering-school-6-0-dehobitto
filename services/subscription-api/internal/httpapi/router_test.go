@@ -7,47 +7,105 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 
 	"subber/pkg/requestid"
 	"subber/services/subscription-api/internal/subscription"
 )
 
-type fakeSubscriptionReader struct {
-	confirmCalled bool
-	unsubCalled   bool
-	subscriptions []subscription.Subscription
-	err           error
+type MockSubscriptionReader struct {
+	ctrl     *gomock.Controller
+	recorder *MockSubscriptionReaderMockRecorder
 }
 
-func (r *fakeSubscriptionReader) GetSubscriptions(context.Context, string) ([]subscription.Subscription, error) {
-	return r.subscriptions, r.err
+type MockSubscriptionReaderMockRecorder struct {
+	mock *MockSubscriptionReader
 }
 
-func (r *fakeSubscriptionReader) ConfirmSubscriptionByToken(context.Context, string) error {
-	r.confirmCalled = true
-	return r.err
+func NewMockSubscriptionReader(ctrl *gomock.Controller) *MockSubscriptionReader {
+	mock := &MockSubscriptionReader{ctrl: ctrl}
+	mock.recorder = &MockSubscriptionReaderMockRecorder{mock}
+	return mock
 }
 
-func (r *fakeSubscriptionReader) Unsubscribe(context.Context, string) error {
-	r.unsubCalled = true
-	return r.err
+func (m *MockSubscriptionReader) EXPECT() *MockSubscriptionReaderMockRecorder {
+	return m.recorder
 }
 
-type fakeSubscriptionCreator struct {
-	called bool
-	err    error
+func (m *MockSubscriptionReader) ConfirmSubscriptionByToken(ctx context.Context, token string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConfirmSubscriptionByToken", ctx, token)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
-func (c *fakeSubscriptionCreator) Subscribe(context.Context, string, string) error {
-	c.called = true
-	return c.err
+func (mr *MockSubscriptionReaderMockRecorder) ConfirmSubscriptionByToken(ctx, token interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConfirmSubscriptionByToken", reflect.TypeOf((*MockSubscriptionReader)(nil).ConfirmSubscriptionByToken), ctx, token)
 }
 
-func newTestRouter(apiKey string, reader *fakeSubscriptionReader, creator *fakeSubscriptionCreator) http.Handler {
+func (m *MockSubscriptionReader) GetSubscriptions(ctx context.Context, email string) ([]subscription.Subscription, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSubscriptions", ctx, email)
+	ret0, _ := ret[0].([]subscription.Subscription)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockSubscriptionReaderMockRecorder) GetSubscriptions(ctx, email interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSubscriptions", reflect.TypeOf((*MockSubscriptionReader)(nil).GetSubscriptions), ctx, email)
+}
+
+func (m *MockSubscriptionReader) Unsubscribe(ctx context.Context, token string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Unsubscribe", ctx, token)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockSubscriptionReaderMockRecorder) Unsubscribe(ctx, token interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unsubscribe", reflect.TypeOf((*MockSubscriptionReader)(nil).Unsubscribe), ctx, token)
+}
+
+type MockSubscriptionCreator struct {
+	ctrl     *gomock.Controller
+	recorder *MockSubscriptionCreatorMockRecorder
+}
+
+type MockSubscriptionCreatorMockRecorder struct {
+	mock *MockSubscriptionCreator
+}
+
+func NewMockSubscriptionCreator(ctrl *gomock.Controller) *MockSubscriptionCreator {
+	mock := &MockSubscriptionCreator{ctrl: ctrl}
+	mock.recorder = &MockSubscriptionCreatorMockRecorder{mock}
+	return mock
+}
+
+func (m *MockSubscriptionCreator) EXPECT() *MockSubscriptionCreatorMockRecorder {
+	return m.recorder
+}
+
+func (m *MockSubscriptionCreator) Subscribe(ctx context.Context, email, repo string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Subscribe", ctx, email, repo)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockSubscriptionCreatorMockRecorder) Subscribe(ctx, email, repo interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Subscribe", reflect.TypeOf((*MockSubscriptionCreator)(nil).Subscribe), ctx, email, repo)
+}
+
+func newTestRouter(apiKey string, reader SubscriptionReader, creator SubscriptionCreator) http.Handler {
 	gin.SetMode(gin.TestMode)
 	return SetupRouter(RouterDeps{
 		APIKey:  apiKey,
@@ -57,8 +115,8 @@ func newTestRouter(apiKey string, reader *fakeSubscriptionReader, creator *fakeS
 }
 
 func TestSubscribe_RequiresAPIKey(t *testing.T) {
-	creator := &fakeSubscriptionCreator{}
-	router := newTestRouter("secret", &fakeSubscriptionReader{}, creator)
+	ctrl := gomock.NewController(t)
+	router := newTestRouter("secret", NewMockSubscriptionReader(ctrl), NewMockSubscriptionCreator(ctrl))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/subscribe", bytes.NewBufferString(`{"email":"user@example.com","repo":"owner/repo"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -68,14 +126,11 @@ func TestSubscribe_RequiresAPIKey(t *testing.T) {
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", res.Code)
 	}
-	if creator.called {
-		t.Fatal("service should not be called without API key")
-	}
 }
 
 func TestSubscribe_RejectsInvalidRepoBeforeService(t *testing.T) {
-	creator := &fakeSubscriptionCreator{}
-	router := newTestRouter("secret", &fakeSubscriptionReader{}, creator)
+	ctrl := gomock.NewController(t)
+	router := newTestRouter("secret", NewMockSubscriptionReader(ctrl), NewMockSubscriptionCreator(ctrl))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/subscribe", bytes.NewBufferString(`{"email":"user@example.com","repo":"broken"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -86,14 +141,11 @@ func TestSubscribe_RejectsInvalidRepoBeforeService(t *testing.T) {
 	if res.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", res.Code)
 	}
-	if creator.called {
-		t.Fatal("service should not be called for invalid repo")
-	}
 }
 
 func TestSubscribe_RejectsInvalidEmailBeforeService(t *testing.T) {
-	creator := &fakeSubscriptionCreator{}
-	router := newTestRouter("secret", &fakeSubscriptionReader{}, creator)
+	ctrl := gomock.NewController(t)
+	router := newTestRouter("secret", NewMockSubscriptionReader(ctrl), NewMockSubscriptionCreator(ctrl))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/subscribe", bytes.NewBufferString(`{"email":"bad-email","repo":"owner/repo"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -103,9 +155,6 @@ func TestSubscribe_RejectsInvalidEmailBeforeService(t *testing.T) {
 
 	if res.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", res.Code)
-	}
-	if creator.called {
-		t.Fatal("service should not be called for invalid email")
 	}
 }
 
@@ -126,7 +175,10 @@ func TestSubscribe_MapsServiceErrorsToHTTPStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router := newTestRouter("", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{err: tt.err})
+			ctrl := gomock.NewController(t)
+			creator := NewMockSubscriptionCreator(ctrl)
+			creator.EXPECT().Subscribe(gomock.Any(), "user@example.com", "owner/repo").Return(tt.err)
+			router := newTestRouter("", NewMockSubscriptionReader(ctrl), creator)
 			req := httptest.NewRequest(http.MethodPost, "/api/subscribe", bytes.NewBufferString(body))
 			req.Header.Set("Content-Type", "application/json")
 			res := httptest.NewRecorder()
@@ -139,8 +191,8 @@ func TestSubscribe_MapsServiceErrorsToHTTPStatus(t *testing.T) {
 }
 
 func TestSubscribe_RejectsInvalidJSON(t *testing.T) {
-	creator := &fakeSubscriptionCreator{}
-	router := newTestRouter("", &fakeSubscriptionReader{}, creator)
+	ctrl := gomock.NewController(t)
+	router := newTestRouter("", NewMockSubscriptionReader(ctrl), NewMockSubscriptionCreator(ctrl))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/subscribe", bytes.NewBufferString(`not json`))
 	req.Header.Set("Content-Type", "application/json")
@@ -150,13 +202,11 @@ func TestSubscribe_RejectsInvalidJSON(t *testing.T) {
 	if res.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", res.Code)
 	}
-	if creator.called {
-		t.Fatal("service should not be called for invalid JSON")
-	}
 }
 
 func TestGetSubscriptions_RejectsInvalidEmail(t *testing.T) {
-	router := newTestRouter("secret", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{})
+	ctrl := gomock.NewController(t)
+	router := newTestRouter("secret", NewMockSubscriptionReader(ctrl), NewMockSubscriptionCreator(ctrl))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/?email=bad-email", nil)
 	req.Header.Set("X-API-Key", "secret")
@@ -170,27 +220,31 @@ func TestGetSubscriptions_RejectsInvalidEmail(t *testing.T) {
 
 func TestGetSubscriptions_ReturnsSubscriptionsAndRepositoryErrors(t *testing.T) {
 	tests := []struct {
-		name string
-		repo *fakeSubscriptionReader
-		want int
+		name          string
+		subscriptions []subscription.Subscription
+		err           error
+		want          int
 	}{
 		{
 			name: "success",
-			repo: &fakeSubscriptionReader{subscriptions: []subscription.Subscription{
+			subscriptions: []subscription.Subscription{
 				{Email: "user@example.com", Repo: "owner/repo", Confirmed: true},
-			}},
+			},
 			want: http.StatusOK,
 		},
 		{
 			name: "repository error",
-			repo: &fakeSubscriptionReader{err: errors.New("db down")},
+			err:  errors.New("db down"),
 			want: http.StatusInternalServerError,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router := newTestRouter("", tt.repo, &fakeSubscriptionCreator{})
+			ctrl := gomock.NewController(t)
+			reader := NewMockSubscriptionReader(ctrl)
+			reader.EXPECT().GetSubscriptions(gomock.Any(), "user@example.com").Return(tt.subscriptions, tt.err)
+			router := newTestRouter("", reader, NewMockSubscriptionCreator(ctrl))
 			req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/?email=user@example.com", nil)
 			res := httptest.NewRecorder()
 			router.ServeHTTP(res, req)
@@ -212,8 +266,8 @@ func TestGetSubscriptions_ReturnsSubscriptionsAndRepositoryErrors(t *testing.T) 
 }
 
 func TestConfirm_RejectsInvalidTokenBeforeRepository(t *testing.T) {
-	reader := &fakeSubscriptionReader{}
-	router := newTestRouter("", reader, &fakeSubscriptionCreator{})
+	ctrl := gomock.NewController(t)
+	router := newTestRouter("", NewMockSubscriptionReader(ctrl), NewMockSubscriptionCreator(ctrl))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/confirm/not-a-uuid", nil)
 	res := httptest.NewRecorder()
@@ -221,9 +275,6 @@ func TestConfirm_RejectsInvalidTokenBeforeRepository(t *testing.T) {
 
 	if res.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", res.Code)
-	}
-	if reader.confirmCalled {
-		t.Fatal("repository should not be called for invalid token")
 	}
 }
 
@@ -240,17 +291,16 @@ func TestConfirm_MapsRepositoryResult(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reader := &fakeSubscriptionReader{err: tt.err}
-			router := newTestRouter("", reader, &fakeSubscriptionCreator{})
+			ctrl := gomock.NewController(t)
+			reader := NewMockSubscriptionReader(ctrl)
+			reader.EXPECT().ConfirmSubscriptionByToken(gomock.Any(), token).Return(tt.err)
+			router := newTestRouter("", reader, NewMockSubscriptionCreator(ctrl))
 			req := httptest.NewRequest(http.MethodGet, "/api/confirm/"+token, nil)
 			res := httptest.NewRecorder()
 			router.ServeHTTP(res, req)
 
 			if res.Code != tt.want {
 				t.Fatalf("status = %d, want %d", res.Code, tt.want)
-			}
-			if !reader.confirmCalled {
-				t.Fatal("repository should be called for valid token")
 			}
 		})
 	}
@@ -269,8 +319,10 @@ func TestUnsubscribe_MapsRepositoryResult(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reader := &fakeSubscriptionReader{err: tt.err}
-			router := newTestRouter("", reader, &fakeSubscriptionCreator{})
+			ctrl := gomock.NewController(t)
+			reader := NewMockSubscriptionReader(ctrl)
+			reader.EXPECT().Unsubscribe(gomock.Any(), token).Return(tt.err)
+			router := newTestRouter("", reader, NewMockSubscriptionCreator(ctrl))
 			req := httptest.NewRequest(http.MethodGet, "/api/unsubscribe/"+token, nil)
 			res := httptest.NewRecorder()
 			router.ServeHTTP(res, req)
@@ -278,15 +330,15 @@ func TestUnsubscribe_MapsRepositoryResult(t *testing.T) {
 			if res.Code != tt.want {
 				t.Fatalf("status = %d, want %d", res.Code, tt.want)
 			}
-			if !reader.unsubCalled {
-				t.Fatal("repository should be called for valid token")
-			}
 		})
 	}
 }
 
 func TestRequestIDMiddleware_PropagatesValidHeader(t *testing.T) {
-	router := newTestRouter("", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{})
+	ctrl := gomock.NewController(t)
+	reader := NewMockSubscriptionReader(ctrl)
+	reader.EXPECT().GetSubscriptions(gomock.Any(), "user@example.com").Return(nil, nil)
+	router := newTestRouter("", reader, NewMockSubscriptionCreator(ctrl))
 	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/?email=user@example.com", nil)
 	req.Header.Set(requestid.Header, "client-request-1")
 	res := httptest.NewRecorder()
@@ -298,7 +350,10 @@ func TestRequestIDMiddleware_PropagatesValidHeader(t *testing.T) {
 }
 
 func TestRequestIDMiddleware_GeneratesMissingHeader(t *testing.T) {
-	router := newTestRouter("", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{})
+	ctrl := gomock.NewController(t)
+	reader := NewMockSubscriptionReader(ctrl)
+	reader.EXPECT().GetSubscriptions(gomock.Any(), "user@example.com").Return(nil, nil)
+	router := newTestRouter("", reader, NewMockSubscriptionCreator(ctrl))
 	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/?email=user@example.com", nil)
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
