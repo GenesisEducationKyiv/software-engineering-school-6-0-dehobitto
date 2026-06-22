@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/jackc/pgx/v5"
 
 	"subber/pkg/contracts"
@@ -37,6 +39,12 @@ func TestSubscribe_SuccessPersistsUnconfirmedAndWritesConfirmationOutbox(t *test
 func TestSaveSubscriptionWithConfirmation_RollsBackWhenOutboxFails(t *testing.T) {
 	env := newTestEnv(t, newGitHubMock(t, nil, "", nil))
 	repo := subscription.NewRepository(env.pool)
+	ctrl := gomock.NewController(t)
+	publisher := NewMockConfirmationPublisher(ctrl)
+	outboxErr := errors.New("outbox down")
+	publisher.EXPECT().
+		PublishConfirmationTx(gomock.Any(), gomock.Any(), "rollback@example.com", "owner/repo", "00000000-0000-0000-0000-000000000001").
+		Return(outboxErr)
 
 	err := repo.SaveSubscriptionWithConfirmationRequest(
 		context.Background(),
@@ -46,7 +54,7 @@ func TestSaveSubscriptionWithConfirmation_RollsBackWhenOutboxFails(t *testing.T)
 			LastSeenTag: "v1.0.0",
 			Token:       "00000000-0000-0000-0000-000000000001",
 		},
-		failingConfirmationPublisher{},
+		publisher,
 	)
 	if err == nil {
 		t.Fatal("expected outbox error, got nil")
@@ -78,10 +86,35 @@ func TestSubscribe_DuplicateAndRepoValidation(t *testing.T) {
 	}
 }
 
-type failingConfirmationPublisher struct{}
+type MockConfirmationPublisher struct {
+	ctrl     *gomock.Controller
+	recorder *MockConfirmationPublisherMockRecorder
+}
 
-func (failingConfirmationPublisher) PublishConfirmationTx(context.Context, pgx.Tx, string, string, string) error {
-	return errors.New("outbox down")
+type MockConfirmationPublisherMockRecorder struct {
+	mock *MockConfirmationPublisher
+}
+
+func NewMockConfirmationPublisher(ctrl *gomock.Controller) *MockConfirmationPublisher {
+	mock := &MockConfirmationPublisher{ctrl: ctrl}
+	mock.recorder = &MockConfirmationPublisherMockRecorder{mock}
+	return mock
+}
+
+func (m *MockConfirmationPublisher) EXPECT() *MockConfirmationPublisherMockRecorder {
+	return m.recorder
+}
+
+func (m *MockConfirmationPublisher) PublishConfirmationTx(ctx context.Context, tx pgx.Tx, email, repo, token string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishConfirmationTx", ctx, tx, email, repo, token)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockConfirmationPublisherMockRecorder) PublishConfirmationTx(ctx, tx, email, repo, token interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishConfirmationTx", reflect.TypeOf((*MockConfirmationPublisher)(nil).PublishConfirmationTx), ctx, tx, email, repo, token)
 }
 
 func TestSubscribe_WithoutAPIKeyReturnsUnauthorized(t *testing.T) {
