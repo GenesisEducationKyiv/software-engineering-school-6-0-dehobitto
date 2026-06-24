@@ -187,7 +187,7 @@ func requestIDMiddleware() gin.HandlerFunc {
 
 func apiKeyAuth(apiKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if apiKey == "" || c.GetHeader("X-API-Key") == apiKey {
+		if c.GetHeader("X-API-Key") == apiKey {
 			c.Next()
 			return
 		}

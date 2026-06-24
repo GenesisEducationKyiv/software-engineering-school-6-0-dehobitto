@@ -34,6 +34,9 @@ func main() {
 
 func run() error {
 	cfg := config.Load()
+	if cfg.APIKey == "" {
+		return fmt.Errorf("subscription api key is required")
+	}
 	cleanupLogs, err := logger.Configure(cfg.LogLevel, cfg.LogSidecarEnabled, cfg.LogSidecarURL, cfg.LogFile)
 	if err != nil {
 		return fmt.Errorf("configure logger: %w", err)

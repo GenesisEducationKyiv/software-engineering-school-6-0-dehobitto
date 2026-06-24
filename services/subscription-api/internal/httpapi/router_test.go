@@ -93,6 +93,23 @@ func TestSubscribe_RequiresAPIKey(t *testing.T) {
 	}
 }
 
+func TestSubscribe_RejectsRequestsWhenConfiguredAPIKeyIsEmpty(t *testing.T) {
+	creator := &fakeSubscriptionCreator{}
+	router := newTestRouter("", &fakeSubscriptionReader{}, creator)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscribe", bytes.NewBufferString(`{"email":"user@example.com","repo":"owner/repo"}`))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", res.Code)
+	}
+	if creator.called {
+		t.Fatal("service should not be called when API key config is empty")
+	}
+}
+
 func TestSubscribe_RejectsInvalidRepoBeforeService(t *testing.T) {
 	creator := &fakeSubscriptionCreator{}
 	router := newTestRouter("secret", &fakeSubscriptionReader{}, creator)
@@ -146,9 +163,10 @@ func TestSubscribe_MapsServiceErrorsToHTTPStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router := newTestRouter("", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{err: tt.err})
+			router := newTestRouter("secret", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{err: tt.err})
 			req := httptest.NewRequest(http.MethodPost, "/api/subscribe", bytes.NewBufferString(body))
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-API-Key", "secret")
 			res := httptest.NewRecorder()
 			router.ServeHTTP(res, req)
 			if res.Code != tt.want {
@@ -160,10 +178,11 @@ func TestSubscribe_MapsServiceErrorsToHTTPStatus(t *testing.T) {
 
 func TestSubscribe_RejectsInvalidJSON(t *testing.T) {
 	creator := &fakeSubscriptionCreator{}
-	router := newTestRouter("", &fakeSubscriptionReader{}, creator)
+	router := newTestRouter("secret", &fakeSubscriptionReader{}, creator)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/subscribe", bytes.NewBufferString(`not json`))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "secret")
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
 
@@ -210,8 +229,9 @@ func TestGetSubscriptions_ReturnsSubscriptionsAndRepositoryErrors(t *testing.T) 
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router := newTestRouter("", tt.repo, &fakeSubscriptionCreator{})
+			router := newTestRouter("secret", tt.repo, &fakeSubscriptionCreator{})
 			req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/?email=user@example.com", nil)
+			req.Header.Set("X-API-Key", "secret")
 			res := httptest.NewRecorder()
 			router.ServeHTTP(res, req)
 
@@ -306,9 +326,10 @@ func TestUnsubscribe_MapsRepositoryResult(t *testing.T) {
 }
 
 func TestRequestIDMiddleware_PropagatesValidHeader(t *testing.T) {
-	router := newTestRouter("", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{})
+	router := newTestRouter("secret", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{})
 	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/?email=user@example.com", nil)
 	req.Header.Set(requestid.Header, "client-request-1")
+	req.Header.Set("X-API-Key", "secret")
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
 
@@ -318,8 +339,9 @@ func TestRequestIDMiddleware_PropagatesValidHeader(t *testing.T) {
 }
 
 func TestRequestIDMiddleware_GeneratesMissingHeader(t *testing.T) {
-	router := newTestRouter("", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{})
+	router := newTestRouter("secret", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{})
 	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/?email=user@example.com", nil)
+	req.Header.Set("X-API-Key", "secret")
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
 
@@ -331,9 +353,10 @@ func TestRequestIDMiddleware_GeneratesMissingHeader(t *testing.T) {
 func TestAPIAccessMiddleware_LogsAndCountsAPIRequestsOnly(t *testing.T) {
 	metrics := NewAccessMetrics()
 	log := newFakeLogger()
-	router := newObservedTestRouter("", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{}, log, metrics)
+	router := newObservedTestRouter("secret", &fakeSubscriptionReader{}, &fakeSubscriptionCreator{}, log, metrics)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/?email=bad-email", nil)
+	req.Header.Set("X-API-Key", "secret")
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
 
