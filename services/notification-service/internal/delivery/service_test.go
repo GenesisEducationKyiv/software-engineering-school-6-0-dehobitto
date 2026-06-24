@@ -17,6 +17,7 @@ type fakeStore struct {
 	markDeadErr   error
 	markSentKey   string
 	markFailedKey string
+	markFailedAt  time.Time
 	markDeadKey   string
 }
 
@@ -29,8 +30,9 @@ func (s *fakeStore) MarkSent(_ context.Context, key string) error {
 	return s.markSentErr
 }
 
-func (s *fakeStore) MarkFailed(_ context.Context, key string, _ error) error {
+func (s *fakeStore) MarkFailed(_ context.Context, key string, _ error, nextAttemptAt time.Time) error {
 	s.markFailedKey = key
+	s.markFailedAt = nextAttemptAt
 	return s.markFailedErr
 }
 
@@ -51,15 +53,7 @@ func (s *fakeSender) Send(string, string) error {
 
 type fakeRetryPublisher struct {
 	err        error
-	retryDelay time.Duration
-	retryCalls int
 	dlqCalls   int
-}
-
-func (p *fakeRetryPublisher) Retry(_ context.Context, _ contracts.NotificationSendRequestedPayload, delay time.Duration) error {
-	p.retryCalls++
-	p.retryDelay = delay
-	return p.err
 }
 
 func (p *fakeRetryPublisher) DeadLetter(context.Context, contracts.NotificationSendRequestedPayload, error) error {
@@ -115,6 +109,7 @@ func TestProcess_RetryableFailurePublishesRetry(t *testing.T) {
 	sender := &fakeSender{err: errors.New("smtp down")}
 	retries := &fakeRetryPublisher{}
 	svc := NewService(store, sender, retries, nil, 3, []time.Duration{time.Minute, 10 * time.Minute})
+	before := time.Now().UTC().Add(time.Minute)
 
 	if err := svc.Process(context.Background(), notificationPayload()); err != nil {
 		t.Fatalf("Process() error = %v", err)
@@ -122,8 +117,8 @@ func TestProcess_RetryableFailurePublishesRetry(t *testing.T) {
 	if store.markFailedKey != "owner/repo:v1:user" {
 		t.Fatalf("MarkFailed key = %q", store.markFailedKey)
 	}
-	if retries.retryCalls != 1 || retries.retryDelay != time.Minute {
-		t.Fatalf("retry = (%d, %s), want (1, 1m)", retries.retryCalls, retries.retryDelay)
+	if store.markFailedAt.Before(before) {
+		t.Fatalf("nextAttemptAt = %s, want at or after %s", store.markFailedAt, before)
 	}
 }
 
@@ -172,17 +167,11 @@ func TestProcess_ReturnsRepositoryErrors(t *testing.T) {
 	}
 }
 
-func TestProcess_ReturnsRetryPublisherErrors(t *testing.T) {
+func TestProcess_ReturnsDeadLetterPublisherErrors(t *testing.T) {
 	publishErr := errors.New("kafka down")
 
-	store := &fakeStore{delivery: Delivery{Status: StatusPending, AttemptCount: 0}}
+	store := &fakeStore{delivery: Delivery{Status: StatusFailed, AttemptCount: 2}}
 	svc := NewService(store, &fakeSender{err: errors.New("smtp down")}, &fakeRetryPublisher{err: publishErr}, nil, 3, []time.Duration{time.Minute})
-	if err := svc.Process(context.Background(), notificationPayload()); !errors.Is(err, publishErr) {
-		t.Fatalf("retry publish error = %v, want %v", err, publishErr)
-	}
-
-	store = &fakeStore{delivery: Delivery{Status: StatusFailed, AttemptCount: 2}}
-	svc = NewService(store, &fakeSender{err: errors.New("smtp down")}, &fakeRetryPublisher{err: publishErr}, nil, 3, []time.Duration{time.Minute})
 	if err := svc.Process(context.Background(), notificationPayload()); !errors.Is(err, publishErr) {
 		t.Fatalf("dlq publish error = %v, want %v", err, publishErr)
 	}

@@ -45,12 +45,13 @@ func run() error {
 	}
 	defer pool.Close()
 	prometheus.MustRegister(outbox.NewCollector(pool, "notification-service"))
+	repo := delivery.NewRepository(pool)
 
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close() //nolint:errcheck
 
 	service := delivery.NewService(
-		delivery.NewRepository(pool),
+		repo,
 		email.NewSMTPSender(email.Config{
 			SMTPHost:     cfg.SMTPHost,
 			SMTPPort:     cfg.SMTPPort,
@@ -62,6 +63,7 @@ func run() error {
 		cfg.NotificationRetryAttempts,
 		cfg.NotificationRetryDelays,
 	)
+	retryScheduler := delivery.NewRetryScheduler(repo, log.WithField("component", "retry-scheduler"), 100, time.Second)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -70,10 +72,11 @@ func run() error {
 	group.Go(func() error {
 		return metrics.Serve(ctx, ":"+cfg.MetricsPort)
 	})
+	group.Go(func() error {
+		return retryScheduler.Start(ctx)
+	})
 	for _, topic := range []string{
 		contracts.TopicNotificationCommands,
-		contracts.TopicNotificationRetry1m,
-		contracts.TopicNotificationRetry10m,
 	} {
 		topic := topic
 		consumer := kafka.NewConsumerWithLogger(cfg.KafkaBrokers, topic, "notification-service", log.WithField("component", "kafka-consumer").WithField("topic", topic)).
@@ -89,32 +92,10 @@ func run() error {
 				if event.EventType != contracts.EventNotificationRequested {
 					return kafka.NonRetryable(fmt.Errorf("unsupported notification event type %q", event.EventType))
 				}
-				if err := waitUntilDue(ctx, event.NotBefore); err != nil {
-					return err
-				}
 				return service.Process(ctx, event.Payload)
 			})
 		})
 	}
 
 	return group.Wait()
-}
-
-func waitUntilDue(ctx context.Context, notBefore *time.Time) error {
-	if notBefore == nil {
-		return nil
-	}
-	delay := time.Until(*notBefore)
-	if delay <= 0 {
-		return nil
-	}
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }

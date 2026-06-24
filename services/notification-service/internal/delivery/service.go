@@ -14,14 +14,13 @@ type EmailSender interface {
 }
 
 type RetryPublisher interface {
-	Retry(ctx context.Context, payload contracts.NotificationSendRequestedPayload, delay time.Duration) error
 	DeadLetter(ctx context.Context, payload contracts.NotificationSendRequestedPayload, cause error) error
 }
 
 type Store interface {
 	UpsertPending(ctx context.Context, payload contracts.NotificationSendRequestedPayload) (Delivery, error)
 	MarkSent(ctx context.Context, idempotencyKey string) error
-	MarkFailed(ctx context.Context, idempotencyKey string, cause error) error
+	MarkFailed(ctx context.Context, idempotencyKey string, cause error, nextAttemptAt time.Time) error
 	MarkDead(ctx context.Context, idempotencyKey string, cause error) error
 }
 
@@ -93,14 +92,9 @@ func (s *Service) handleFailure(ctx context.Context, payload contracts.Notificat
 		return nil
 	}
 
-	if err := s.repo.MarkFailed(ctx, payload.IdempotencyKey, cause); err != nil {
+	delay := s.retryDelay(nextAttempt)
+	if err := s.repo.MarkFailed(ctx, payload.IdempotencyKey, cause, time.Now().UTC().Add(delay)); err != nil {
 		return err
-	}
-	if s.retries != nil {
-		delay := s.retryDelay(nextAttempt)
-		if err := s.retries.Retry(ctx, payload, delay); err != nil {
-			return fmt.Errorf("publish notification retry: %w", err)
-		}
 	}
 	notificationsRetried.Inc()
 	return nil
