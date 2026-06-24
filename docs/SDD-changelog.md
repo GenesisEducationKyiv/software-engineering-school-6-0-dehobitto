@@ -44,13 +44,13 @@ Current Kafka topics:
 | Topic | Purpose |
 | --- | --- |
 | `subber.watchlist.events` | subscription API tells scanner to start/stop watching a repository |
+| `subber.watchlist.dlq` | malformed or unsupported watchlist events |
 | `subber.release.events` | scanner publishes detected releases |
 | `subber.notification.commands` | subscription API requests email delivery |
 | `subber.notification.retry.1m` | first delayed notification retry |
 | `subber.notification.retry.10m` | second delayed notification retry |
-| `subber.notification.dlq` | exhausted notification commands |
 
-Messages use an envelope with `event_id`, `event_type`, `occurred_at`, `source`, `correlation_id`, and `payload`.
+Messages use an envelope with `event_id`, `event_type`, `occurred_at`, `source`, `correlation_id`, optional `not_before`, and `payload`.
 
 ### Reliability
 
@@ -61,8 +61,9 @@ Messages use an envelope with `event_id`, `event_type`, `occurred_at`, `source`,
 The notifier processes email delivery with at-least-once semantics:
 
 * delivery is protected by idempotency keys;
-* failed sends are retried with limited retry topics;
-* exhausted sends are moved to the notification DLQ.
+* failed sends are retried with limited retry topics and `not_before` delayed handling;
+* exhausted sends are moved to the notification DLQ;
+* malformed or unsupported consumer messages are published to DLQ and skipped after successful DLQ publish.
 
 ### Data Ownership
 
@@ -77,6 +78,8 @@ The notifier processes email delivery with at-least-once semantics:
 | `notification-service` | `subber_notifier` | delivery state, idempotency records, notification outbox |
 
 Services do not share tables. Cross-service data movement happens through Kafka events.
+
+Schema changes are applied through versioned SQL migrations. Services no longer run runtime `Migrate()` calls on startup.
 
 ### Scanner And Cache
 
@@ -115,12 +118,15 @@ Vector sends logs to Elasticsearch in batches. Kafka is not used for log transpo
 | Tool | Purpose |
 | --- | --- |
 | Prometheus | scrape metrics from all three services |
+| Kafka exporter | expose Kafka consumer lag |
 | Grafana | metrics dashboard |
 | Elasticsearch | log storage/search |
 | Kibana | log dashboard/search UI |
 | Vector | log collector and Elasticsearch batch sender |
 
 The Kibana dashboard artifact is stored at `deployments/docker/kibana/dashboards.ndjson`.
+
+Operational metrics include outbox pending/failed/attempts, notification sent/failed/retried/dead counters, Kafka consumer processed/failed/skipped counters, and Kafka consumer lag from `kafka-exporter`.
 
 ### Deployment
 
@@ -166,5 +172,6 @@ YAML config files are intentionally not used for runtime service configuration.
 * integration tests for database-backed subscription/outbox behavior;
 * runtime smoke scripts for local stack readiness;
 * Kafka E2E scripts for the asynchronous business flow.
+* full Playwright E2E scripts for the complete local stack.
 
-Current commands are documented in `testing.md`.
+Current commands are documented in `docs/testing.md`.

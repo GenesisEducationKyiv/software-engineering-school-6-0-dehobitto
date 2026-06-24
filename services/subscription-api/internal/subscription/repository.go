@@ -28,28 +28,6 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, `
-CREATE TABLE IF NOT EXISTS subscriptions (
-	id SERIAL PRIMARY KEY,
-	email VARCHAR(255) NOT NULL,
-	repo VARCHAR(255) NOT NULL,
-	confirmed BOOLEAN DEFAULT false,
-	token VARCHAR(255),
-	last_seen_tag VARCHAR(100),
-	UNIQUE (email, repo)
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_token
-	ON subscriptions (token)
-	WHERE token IS NOT NULL;
-`)
-	if err != nil {
-		return fmt.Errorf("migrate subscription schema: %w", err)
-	}
-	return outbox.Migrate(ctx, pool)
-}
-
 func (r *Repository) SubscriptionExists(ctx context.Context, email, repo string) (bool, error) {
 	var exists bool
 	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM subscriptions WHERE email = $1 AND repo = $2)`, email, repo).Scan(&exists)

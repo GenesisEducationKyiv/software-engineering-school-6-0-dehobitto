@@ -21,6 +21,7 @@ import (
 	"subber/pkg/outbox"
 	"subber/pkg/postgres"
 	"subber/services/subscription-api/internal/config"
+	"subber/services/subscription-api/internal/dbmigrations"
 	"subber/services/subscription-api/internal/httpapi"
 	"subber/services/subscription-api/internal/subscription"
 )
@@ -34,9 +35,6 @@ func main() {
 
 func run() error {
 	cfg := config.Load()
-	if cfg.APIKey == "" {
-		return fmt.Errorf("subscription api key is required")
-	}
 	cleanupLogs, err := logger.Configure(cfg.LogLevel, cfg.LogSidecarEnabled, cfg.LogSidecarURL, cfg.LogFile)
 	if err != nil {
 		return fmt.Errorf("configure logger: %w", err)
@@ -66,11 +64,12 @@ func run() error {
 		return fmt.Errorf("connect subscription database: %w", err)
 	}
 	defer pool.Close()
+	prometheus.MustRegister(outbox.NewCollector(pool, "subscription-api"))
 
-	if err := subscription.Migrate(context.Background(), pool); err != nil {
+	if err := dbmigrations.Run(context.Background(), pool); err != nil {
 		return fmt.Errorf("migrate subscription database: %w", err)
 	}
-	metricRegistry.MustRegister(outbox.NewBacklogGauge(pool, "subscription-api"))
+	metricRegistry.MustRegister(outbox.NewCollector(pool, "subscription-api"))
 
 	repo := subscription.NewRepository(pool)
 	githubClient := subscription.NewHTTPGitHubClient(cfg.GitHubBaseURL, cfg.GitHubToken)

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"subber/pkg/contracts"
+	"subber/pkg/kafka"
 	"subber/pkg/logger"
 )
 
@@ -87,7 +88,7 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 func (s *Service) HandleWatchlistEvent(ctx context.Context, value []byte) error {
 	var event contracts.Envelope[contracts.RepoWatchPayload]
 	if err := json.Unmarshal(value, &event); err != nil {
-		return fmt.Errorf("decode watchlist event: %w", err)
+		return kafka.NonRetryable(fmt.Errorf("decode watchlist event: %w", err))
 	}
 
 	switch event.EventType {
@@ -96,7 +97,7 @@ func (s *Service) HandleWatchlistEvent(ctx context.Context, value []byte) error 
 	case contracts.EventRepoWatchStop:
 		return s.repo.StopWatching(ctx, event.Payload.Repo)
 	default:
-		return fmt.Errorf("unsupported watchlist event type %q", event.EventType)
+		return kafka.NonRetryable(fmt.Errorf("unsupported watchlist event type %q", event.EventType))
 	}
 }
 
@@ -114,7 +115,6 @@ func (s *Service) scanRepo(ctx context.Context, watched WatchedRepo, correlation
 		return err
 	}
 	if published {
-		ReleaseDetectedTotal.Inc()
 		s.log.WithField("repo", watched.Repo).WithField("tag", tag).Info("release detected")
 	}
 	return nil

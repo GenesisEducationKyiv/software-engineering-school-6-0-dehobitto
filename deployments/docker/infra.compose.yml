@@ -32,11 +32,22 @@ services:
       - -ec
       - |
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.watchlist.events --partitions 3 --replication-factor 1 --config retention.ms=604800000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.watchlist.dlq --partitions 3 --replication-factor 1 --config retention.ms=1209600000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.release.events --partitions 3 --replication-factor 1 --config retention.ms=604800000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.notification.commands --partitions 6 --replication-factor 1 --config retention.ms=604800000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.notification.retry.1m --partitions 6 --replication-factor 1 --config retention.ms=604800000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.notification.retry.10m --partitions 6 --replication-factor 1 --config retention.ms=604800000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.notification.dlq --partitions 3 --replication-factor 1 --config retention.ms=1209600000
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    command:
+      - --kafka.server=kafka:9092
+    ports:
+      - "9308:9308"
+    depends_on:
+      kafka:
+        condition: service_healthy
 
   redis:
     image: redis:8.8-m03-alpine

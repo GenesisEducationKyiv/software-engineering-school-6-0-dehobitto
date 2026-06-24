@@ -1,4 +1,17 @@
 services:
+  notification-service-migrate:
+    build:
+      context: ../..
+      dockerfile: services/notification-service/Dockerfile
+      args:
+        TARGET: ./services/notification-service/cmd/migrate
+    env_file:
+      - ../../deployments/docker/env/common.env.example
+      - .env.example
+    depends_on:
+      postgres-notifier:
+        condition: service_healthy
+
   notification-service:
     build:
       context: ../..
@@ -13,6 +26,8 @@ services:
         condition: service_completed_successfully
       postgres-notifier:
         condition: service_healthy
+      notification-service-migrate:
+        condition: service_completed_successfully
       mailpit:
         condition: service_started
 
@@ -30,3 +45,5 @@ services:
         condition: service_completed_successfully
       postgres-notifier:
         condition: service_healthy
+      notification-service-migrate:
+        condition: service_completed_successfully

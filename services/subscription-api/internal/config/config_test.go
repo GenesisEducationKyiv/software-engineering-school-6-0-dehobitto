@@ -22,7 +22,7 @@ func unsetKeys(t *testing.T, keys ...string) {
 	}
 }
 
-func TestLoad_Defaults(t *testing.T) {
+func TestLoad_EmptyWhenEnvMissing(t *testing.T) {
 	unsetKeys(t,
 		"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME",
 		"PORT", "API_KEY", "BASE_URL", "KAFKA_BROKERS", "GITHUB_TOKEN",
@@ -31,23 +31,23 @@ func TestLoad_Defaults(t *testing.T) {
 
 	cfg := Load()
 
-	if cfg.DBName != "subber_api" {
-		t.Fatalf("DBName = %q, want subber_api", cfg.DBName)
+	if cfg.DBName != "" {
+		t.Fatalf("DBName = %q, want empty", cfg.DBName)
 	}
-	if cfg.ServerPort != "8080" {
-		t.Fatalf("ServerPort = %q, want 8080", cfg.ServerPort)
+	if cfg.ServerPort != "" {
+		t.Fatalf("ServerPort = %q, want empty", cfg.ServerPort)
 	}
-	if !reflect.DeepEqual(cfg.KafkaBrokers, []string{"kafka:9092"}) {
+	if !reflect.DeepEqual(cfg.KafkaBrokers, []string{}) {
 		t.Fatalf("KafkaBrokers = %#v", cfg.KafkaBrokers)
 	}
-	if cfg.GitHubBaseURL != "https://api.github.com" {
-		t.Fatalf("GitHubBaseURL = %q", cfg.GitHubBaseURL)
+	if cfg.GitHubBaseURL != "" {
+		t.Fatalf("GitHubBaseURL = %q, want empty", cfg.GitHubBaseURL)
 	}
 	if cfg.LogFile != "" {
 		t.Fatalf("LogFile = %q, want empty", cfg.LogFile)
 	}
-	if !cfg.LogSidecarEnabled {
-		t.Fatal("LogSidecarEnabled default must be true")
+	if cfg.LogSidecarEnabled {
+		t.Fatal("LogSidecarEnabled = true, want false")
 	}
 }
 

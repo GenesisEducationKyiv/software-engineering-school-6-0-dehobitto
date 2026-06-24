@@ -44,22 +44,17 @@ func run() error {
 		return fmt.Errorf("connect scanner database: %w", err)
 	}
 	defer pool.Close()
-
-	if err := scanner.Migrate(context.Background(), pool); err != nil {
-		return err
-	}
-	if err := outbox.Migrate(context.Background(), pool); err != nil {
-		return err
-	}
 	prometheus.MustRegister(
 		scanner.ReleaseDetectedTotal,
-		outbox.NewBacklogGauge(pool, "scanner-service"),
+		outbox.NewCollector(pool, "scanner-service"),
 	)
 
 	redisCache := cache.NewRedisCache(cfg.RedisAddr)
 	httpReleases := scannergithub.NewHTTPReleaseProvider(cfg.GitHubBaseURL, cfg.GitHubToken)
 	releases := scannergithub.NewCachedReleaseProvider(redisCache, httpReleases, 45*time.Second, log.WithField("component", "github-cache"))
 	service := scanner.NewService(scanner.NewRepository(pool), releases, log.WithField("component", "scanner"), cfg.ScannerBatchSize, cfg.ScannerInterval)
+	producer := kafka.NewProducer(cfg.KafkaBrokers)
+	defer producer.Close() //nolint:errcheck
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -72,7 +67,8 @@ func run() error {
 		return service.Start(ctx)
 	})
 
-	watchlistConsumer := kafka.NewConsumer(cfg.KafkaBrokers, contracts.TopicWatchlistEvents, "scanner-service")
+	watchlistConsumer := kafka.NewConsumerWithLogger(cfg.KafkaBrokers, contracts.TopicWatchlistEvents, "scanner-service", log.WithField("component", "kafka-consumer").WithField("topic", contracts.TopicWatchlistEvents)).
+		WithDeadLetter(contracts.TopicWatchlistDLQ, producer)
 	defer watchlistConsumer.Close() //nolint:errcheck
 	prometheus.MustRegister(kafka.NewConsumerLagGauge("scanner-service", contracts.TopicWatchlistEvents, watchlistConsumer))
 	group.Go(func() error {

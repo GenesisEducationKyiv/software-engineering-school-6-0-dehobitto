@@ -1,4 +1,17 @@
 services:
+  subscription-api-migrate:
+    build:
+      context: ../..
+      dockerfile: services/subscription-api/Dockerfile
+      args:
+        TARGET: ./services/subscription-api/cmd/migrate
+    env_file:
+      - ../../deployments/docker/env/common.env.example
+      - .env.example
+    depends_on:
+      postgres-api:
+        condition: service_healthy
+
   subscription-api:
     build:
       context: ../..
@@ -13,6 +26,8 @@ services:
         condition: service_completed_successfully
       postgres-api:
         condition: service_healthy
+      subscription-api-migrate:
+        condition: service_completed_successfully
 
   subscription-api-outbox-relay:
     build:
@@ -28,3 +43,5 @@ services:
         condition: service_completed_successfully
       postgres-api:
         condition: service_healthy
+      subscription-api-migrate:
+        condition: service_completed_successfully

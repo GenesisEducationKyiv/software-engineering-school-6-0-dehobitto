@@ -12,11 +12,12 @@ import (
 	"github.com/google/uuid"
 
 	"subber/pkg/outbox"
+	outboxmigrations "subber/pkg/outbox/migrations"
 )
 
 func resetOutbox(t *testing.T) {
 	t.Helper()
-	if err := outbox.Migrate(context.Background(), sharedPool); err != nil {
+	if err := outboxmigrations.Run(context.Background(), sharedPool); err != nil {
 		t.Fatalf("migrate outbox: %v", err)
 	}
 	if _, err := sharedPool.Exec(context.Background(), "TRUNCATE TABLE outbox_events"); err != nil {

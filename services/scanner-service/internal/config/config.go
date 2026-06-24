@@ -21,13 +21,13 @@ type Config struct {
 
 func Load() *Config {
 	return &Config{
-		Database:         sharedconfig.LoadDatabase("subber_scanner"),
-		Metrics:          sharedconfig.LoadMetrics("8081"),
+		Database:         sharedconfig.LoadDatabase(),
+		Metrics:          sharedconfig.LoadMetrics(),
 		Kafka:            sharedconfig.LoadKafka(),
-		RedisAddr:        env.String("REDIS_ADDR", "redis:6379"),
+		RedisAddr:        env.String("REDIS_ADDR", ""),
 		GitHub:           sharedconfig.LoadGitHub(),
-		ScannerBatchSize: env.Int("SCANNER_BATCH_SIZE", 100),
-		ScannerInterval:  env.Duration("SCANNER_INTERVAL", 30*time.Second),
+		ScannerBatchSize: env.Int("SCANNER_BATCH_SIZE", 0),
+		ScannerInterval:  env.Duration("SCANNER_INTERVAL", 0),
 		Logging:          sharedconfig.LoadLogging(),
 	}
 }

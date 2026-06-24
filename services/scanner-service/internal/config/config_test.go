@@ -23,7 +23,7 @@ func unsetKeys(t *testing.T, keys ...string) {
 	}
 }
 
-func TestLoad_Defaults(t *testing.T) {
+func TestLoad_EmptyWhenEnvMissing(t *testing.T) {
 	unsetKeys(t,
 		"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME",
 		"METRICS_PORT", "KAFKA_BROKERS", "REDIS_ADDR", "GITHUB_TOKEN", "GITHUB_BASE_URL",
@@ -33,29 +33,29 @@ func TestLoad_Defaults(t *testing.T) {
 
 	cfg := Load()
 
-	if cfg.DBName != "subber_scanner" {
-		t.Fatalf("DBName = %q, want subber_scanner", cfg.DBName)
+	if cfg.DBName != "" {
+		t.Fatalf("DBName = %q, want empty", cfg.DBName)
 	}
-	if cfg.RedisAddr != "redis:6379" {
-		t.Fatalf("RedisAddr = %q, want redis:6379", cfg.RedisAddr)
+	if cfg.RedisAddr != "" {
+		t.Fatalf("RedisAddr = %q, want empty", cfg.RedisAddr)
 	}
-	if cfg.MetricsPort != "8081" {
-		t.Fatalf("MetricsPort = %q, want 8081", cfg.MetricsPort)
+	if cfg.MetricsPort != "" {
+		t.Fatalf("MetricsPort = %q, want empty", cfg.MetricsPort)
 	}
-	if cfg.ScannerBatchSize != 100 {
-		t.Fatalf("ScannerBatchSize = %d, want 100", cfg.ScannerBatchSize)
+	if cfg.ScannerBatchSize != 0 {
+		t.Fatalf("ScannerBatchSize = %d, want 0", cfg.ScannerBatchSize)
 	}
-	if cfg.ScannerInterval != 30*time.Second {
-		t.Fatalf("ScannerInterval = %s, want 30s", cfg.ScannerInterval)
+	if cfg.ScannerInterval != 0 {
+		t.Fatalf("ScannerInterval = %s, want 0", cfg.ScannerInterval)
 	}
-	if !reflect.DeepEqual(cfg.KafkaBrokers, []string{"kafka:9092"}) {
+	if !reflect.DeepEqual(cfg.KafkaBrokers, []string{}) {
 		t.Fatalf("KafkaBrokers = %#v", cfg.KafkaBrokers)
 	}
 	if cfg.LogFile != "" {
 		t.Fatalf("LogFile = %q, want empty", cfg.LogFile)
 	}
-	if !cfg.LogSidecarEnabled {
-		t.Fatal("LogSidecarEnabled default must be true")
+	if cfg.LogSidecarEnabled {
+		t.Fatal("LogSidecarEnabled = true, want false")
 	}
 }
 

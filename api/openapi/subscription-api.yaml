@@ -17,20 +17,12 @@ paths:
       responses:
         "200":
           description: Subscription created and confirmation email requested.
-        "401":
-          description: Missing or invalid API key.
         "400":
           description: Invalid request.
         "404":
           description: Repository does not exist on GitHub.
         "409":
           description: Email is already subscribed to this repository.
-        "429":
-          description: GitHub API rate limit exceeded.
-        "500":
-          description: Internal server error.
-        "502":
-          description: GitHub API is unavailable.
   /api/subscriptions/:
     get:
       summary: List confirmed subscriptions for an email.

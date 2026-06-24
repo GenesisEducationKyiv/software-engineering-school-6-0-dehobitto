@@ -27,33 +27,6 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, `
-CREATE TABLE IF NOT EXISTS scanner_watchlist (
-	repo TEXT PRIMARY KEY,
-	last_seen_tag TEXT NOT NULL DEFAULT '',
-	next_scan_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-ALTER TABLE scanner_watchlist
-	DROP COLUMN IF EXISTS enabled;
-
-CREATE TABLE IF NOT EXISTS scanner_releases (
-	repo TEXT NOT NULL,
-	tag TEXT NOT NULL,
-	detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	PRIMARY KEY (repo, tag)
-);
-
-CREATE INDEX IF NOT EXISTS idx_scanner_watchlist_due
-	ON scanner_watchlist (next_scan_at, repo);
-`)
-	if err != nil {
-		return fmt.Errorf("migrate scanner schema: %w", err)
-	}
-	return nil
-}
-
 func (r *Repository) ClaimDue(ctx context.Context, limit int, nextScanIn time.Duration) ([]WatchedRepo, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
