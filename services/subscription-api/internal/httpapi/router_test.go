@@ -37,18 +37,6 @@ func (m *MockSubscriptionReader) EXPECT() *MockSubscriptionReaderMockRecorder {
 	return m.recorder
 }
 
-func (m *MockSubscriptionReader) ConfirmSubscriptionByToken(ctx context.Context, token string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ConfirmSubscriptionByToken", ctx, token)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-func (mr *MockSubscriptionReaderMockRecorder) ConfirmSubscriptionByToken(ctx, token interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConfirmSubscriptionByToken", reflect.TypeOf((*MockSubscriptionReader)(nil).ConfirmSubscriptionByToken), ctx, token)
-}
-
 func (m *MockSubscriptionReader) GetSubscriptions(ctx context.Context, email string) ([]subscription.Subscription, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSubscriptions", ctx, email)
@@ -91,6 +79,18 @@ func NewMockSubscriptionCreator(ctrl *gomock.Controller) *MockSubscriptionCreato
 
 func (m *MockSubscriptionCreator) EXPECT() *MockSubscriptionCreatorMockRecorder {
 	return m.recorder
+}
+
+func (m *MockSubscriptionCreator) ConfirmSubscriptionByToken(ctx context.Context, token string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConfirmSubscriptionByToken", ctx, token)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockSubscriptionCreatorMockRecorder) ConfirmSubscriptionByToken(ctx, token interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConfirmSubscriptionByToken", reflect.TypeOf((*MockSubscriptionCreator)(nil).ConfirmSubscriptionByToken), ctx, token)
 }
 
 func (m *MockSubscriptionCreator) Subscribe(ctx context.Context, email, repo string) error {
@@ -286,15 +286,16 @@ func TestConfirm_MapsRepositoryResult(t *testing.T) {
 		want int
 	}{
 		{"success", nil, http.StatusOK},
-		{"unknown token", errors.New("not found"), http.StatusNotFound},
+		{"unknown token", subscription.ErrTokenNotFound, http.StatusNotFound},
+		{"service unavailable", errors.New("outbox down"), http.StatusInternalServerError},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
-			reader := NewMockSubscriptionReader(ctrl)
-			reader.EXPECT().ConfirmSubscriptionByToken(gomock.Any(), token).Return(tt.err)
-			router := newTestRouter("", reader, NewMockSubscriptionCreator(ctrl))
+			creator := NewMockSubscriptionCreator(ctrl)
+			creator.EXPECT().ConfirmSubscriptionByToken(gomock.Any(), token).Return(tt.err)
+			router := newTestRouter("", NewMockSubscriptionReader(ctrl), creator)
 			req := httptest.NewRequest(http.MethodGet, "/api/confirm/"+token, nil)
 			res := httptest.NewRecorder()
 			router.ServeHTTP(res, req)

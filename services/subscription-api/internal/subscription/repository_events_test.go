@@ -10,7 +10,7 @@ import (
 
 func TestBuildRepoWatchSagaRequest(t *testing.T) {
 	occurredAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	event, raw, err := buildRepoWatchSagaRequest(contracts.RepoWatchActionStart, "owner/repo", "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002", occurredAt)
+	event, raw, err := buildRepoWatchSagaRequest(contracts.RepoWatchActionStart, "owner/repo", "user@example.com", "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002", occurredAt)
 	if err != nil {
 		t.Fatalf("buildRepoWatchSagaRequest() error = %v", err)
 	}
@@ -20,7 +20,8 @@ func TestBuildRepoWatchSagaRequest(t *testing.T) {
 	if event.CorrelationID != "00000000-0000-0000-0000-000000000002" ||
 		event.Payload.SagaID != "00000000-0000-0000-0000-000000000001" ||
 		event.Payload.Action != contracts.RepoWatchActionStart ||
-		event.Payload.Repo != "owner/repo" {
+		event.Payload.Repo != "owner/repo" ||
+		event.Payload.Email != "user@example.com" {
 		t.Fatalf("payload/correlation = %#v", event)
 	}
 
@@ -28,7 +29,7 @@ func TestBuildRepoWatchSagaRequest(t *testing.T) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("raw event JSON = %v", err)
 	}
-	if decoded.Payload.Repo != "owner/repo" || decoded.Payload.Action != contracts.RepoWatchActionStart {
+	if decoded.Payload.Repo != "owner/repo" || decoded.Payload.Action != contracts.RepoWatchActionStart || decoded.Payload.Email != "user@example.com" {
 		t.Fatalf("decoded payload = %#v", decoded.Payload)
 	}
 }

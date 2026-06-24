@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"subber/pkg/contracts"
 	"subber/pkg/logger"
 )
 
@@ -16,6 +17,7 @@ var (
 	ErrRepoNotFound      = errors.New("repository not found")
 	ErrGitHubRateLimit   = errors.New("github rate limit exceeded")
 	ErrGitHubUnavailable = errors.New("github unavailable")
+	ErrTokenNotFound     = errors.New("token not found")
 )
 
 type NotificationPublisher interface {
@@ -25,6 +27,8 @@ type NotificationPublisher interface {
 type Store interface {
 	SubscriptionExists(ctx context.Context, email, repo string) (bool, error)
 	SaveSubscriptionWithConfirmationRequest(ctx context.Context, sub Subscription, publisher NotificationPublisher) error
+	ConfirmSubscriptionByToken(ctx context.Context, token string) (ConfirmSubscriptionResult, error)
+	RequestRepoWatchSaga(ctx context.Context, action, repo, email string) error
 }
 
 type Service struct {
@@ -67,6 +71,17 @@ func (s *Service) Subscribe(ctx context.Context, email, repo string) error {
 		Confirmed:   false,
 	}
 	return s.repo.SaveSubscriptionWithConfirmationRequest(ctx, sub, s.notifications)
+}
+
+func (s *Service) ConfirmSubscriptionByToken(ctx context.Context, token string) error {
+	result, err := s.repo.ConfirmSubscriptionByToken(ctx, token)
+	if err != nil {
+		return err
+	}
+	if !result.WasFirstConfirmed {
+		return nil
+	}
+	return s.repo.RequestRepoWatchSaga(ctx, contracts.RepoWatchActionStart, result.Repo, result.Email)
 }
 
 func (s *Service) validateRepo(ctx context.Context, repo string) error {

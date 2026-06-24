@@ -46,6 +46,7 @@ type RepoWatchSagaPayload struct {
 	SagaID string `json:"saga_id"`
 	Action string `json:"action"`
 	Repo   string `json:"repo"`
+	Email  string `json:"email,omitempty"`
 }
 
 type RepoWatchCommandPayload struct {

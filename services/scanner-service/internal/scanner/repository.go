@@ -116,9 +116,11 @@ func (r *Repository) ApplyWatchCommand(ctx context.Context, payload contracts.Re
 		operationErr = fmt.Errorf("unsupported repo watch action %q", payload.Action)
 	}
 	if operationErr != nil {
-		_ = tx.Rollback(ctx)
-		if ackErr := r.insertWatchAck(ctx, payload, correlationID, operationErr); ackErr != nil {
+		if ackErr := insertWatchAckTx(ctx, tx, payload, correlationID, operationErr); ackErr != nil {
 			return fmt.Errorf("%w; publish failure ack: %w", operationErr, ackErr)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit watch failure ack: %w", err)
 		}
 		return nil
 	}
@@ -152,21 +154,6 @@ WHERE repo = $1
 `, repo)
 	if err != nil {
 		return fmt.Errorf("stop watching repo: %w", err)
-	}
-	return nil
-}
-
-func (r *Repository) insertWatchAck(ctx context.Context, payload contracts.RepoWatchCommandPayload, correlationID string, cause error) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin watch ack: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-	if err := insertWatchAckTx(ctx, tx, payload, correlationID, cause); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit watch ack: %w", err)
 	}
 	return nil
 }

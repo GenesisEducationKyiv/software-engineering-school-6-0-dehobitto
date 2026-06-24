@@ -8,6 +8,8 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/jackc/pgx/v5"
+
+	"subber/pkg/contracts"
 )
 
 type MockNotificationPublisher struct {
@@ -58,6 +60,31 @@ func NewMockStore(ctrl *gomock.Controller) *MockStore {
 
 func (m *MockStore) EXPECT() *MockStoreMockRecorder {
 	return m.recorder
+}
+
+func (m *MockStore) ConfirmSubscriptionByToken(ctx context.Context, token string) (ConfirmSubscriptionResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConfirmSubscriptionByToken", ctx, token)
+	ret0, _ := ret[0].(ConfirmSubscriptionResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockStoreMockRecorder) ConfirmSubscriptionByToken(ctx, token interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConfirmSubscriptionByToken", reflect.TypeOf((*MockStore)(nil).ConfirmSubscriptionByToken), ctx, token)
+}
+
+func (m *MockStore) RequestRepoWatchSaga(ctx context.Context, action, repo, email string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequestRepoWatchSaga", ctx, action, repo, email)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockStoreMockRecorder) RequestRepoWatchSaga(ctx, action, repo, email interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestRepoWatchSaga", reflect.TypeOf((*MockStore)(nil).RequestRepoWatchSaga), ctx, action, repo, email)
 }
 
 func (m *MockStore) SaveSubscriptionWithConfirmationRequest(ctx context.Context, sub Subscription, publisher NotificationPublisher) error {
@@ -292,5 +319,50 @@ func TestSubscribe_TagFetchFailureStillSaves(t *testing.T) {
 	}
 	if saved.LastSeenTag != "" {
 		t.Fatalf("LastSeenTag = %q, want empty", saved.LastSeenTag)
+	}
+}
+
+func TestConfirmSubscription_StartsWatchSagaForFirstConfirmedSubscriber(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := NewMockStore(ctrl)
+	notifications := NewMockNotificationPublisher(ctrl)
+	gh := NewMockGitHubClient(ctrl)
+	token := "token-1"
+	gomock.InOrder(
+		store.EXPECT().
+			ConfirmSubscriptionByToken(gomock.Any(), token).
+			Return(ConfirmSubscriptionResult{
+				Repo:              "owner/repo",
+				Email:             "user@example.com",
+				WasFirstConfirmed: true,
+			}, nil),
+		store.EXPECT().
+			RequestRepoWatchSaga(gomock.Any(), contracts.RepoWatchActionStart, "owner/repo", "user@example.com").
+			Return(nil),
+	)
+	svc := NewService(store, notifications, gh, nil)
+
+	if err := svc.ConfirmSubscriptionByToken(context.Background(), token); err != nil {
+		t.Fatalf("ConfirmSubscriptionByToken() error = %v", err)
+	}
+}
+
+func TestConfirmSubscription_DoesNotStartWatchSagaForAlreadyWatchedRepo(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := NewMockStore(ctrl)
+	notifications := NewMockNotificationPublisher(ctrl)
+	gh := NewMockGitHubClient(ctrl)
+	token := "token-1"
+	store.EXPECT().
+		ConfirmSubscriptionByToken(gomock.Any(), token).
+		Return(ConfirmSubscriptionResult{
+			Repo:              "owner/repo",
+			Email:             "user@example.com",
+			WasFirstConfirmed: false,
+		}, nil)
+	svc := NewService(store, notifications, gh, nil)
+
+	if err := svc.ConfirmSubscriptionByToken(context.Background(), token); err != nil {
+		t.Fatalf("ConfirmSubscriptionByToken() error = %v", err)
 	}
 }

@@ -33,12 +33,12 @@ type RouterDeps struct {
 
 type SubscriptionReader interface {
 	GetSubscriptions(ctx context.Context, email string) ([]subscription.Subscription, error)
-	ConfirmSubscriptionByToken(ctx context.Context, token string) error
 	Unsubscribe(ctx context.Context, token string) error
 }
 
 type SubscriptionCreator interface {
 	Subscribe(ctx context.Context, email, repo string) error
+	ConfirmSubscriptionByToken(ctx context.Context, token string) error
 }
 
 func SetupRouter(deps RouterDeps) *gin.Engine {
@@ -157,8 +157,12 @@ func (h handler) confirm(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token"})
 		return
 	}
-	if err := h.repo.ConfirmSubscriptionByToken(c.Request.Context(), token); err != nil {
+	if err := h.service.ConfirmSubscriptionByToken(c.Request.Context(), token); errors.Is(err, subscription.ErrTokenNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Token not found"})
+		return
+	} else if err != nil {
+		h.log.WithError(err).Error("confirm subscription failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Subscription confirmed successfully"})
