@@ -59,8 +59,9 @@ func run() error {
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close() //nolint:errcheck
 
+	repo := delivery.NewRepository(pool)
 	service := delivery.NewService(
-		delivery.NewRepository(pool),
+		repo,
 		email.NewSMTPSender(email.Config{
 			SMTPHost:     cfg.SMTPHost,
 			SMTPPort:     cfg.SMTPPort,
@@ -72,6 +73,7 @@ func run() error {
 		cfg.NotificationRetryAttempts,
 		cfg.NotificationRetryDelays,
 	)
+	retryRelay := delivery.NewRetryRelay(repo, service, 100, time.Second)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -80,10 +82,12 @@ func run() error {
 	group.Go(func() error {
 		return metrics.Serve(ctx, ":"+cfg.MetricsPort)
 	})
+	group.Go(func() error {
+		return retryRelay.Start(ctx)
+	})
+
 	for _, topic := range []string{
 		contracts.TopicNotificationCommands,
-		contracts.TopicNotificationRetry1m,
-		contracts.TopicNotificationRetry10m,
 	} {
 		topic := topic
 		consumer := kafka.NewConsumer(cfg.KafkaBrokers, topic, "notification-service")
