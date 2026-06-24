@@ -25,15 +25,16 @@ type fakeReleasePublisher struct {
 }
 
 type releaseNotificationCall struct {
+	emails        []string
 	email         string
 	repo          string
 	tag           string
 	correlationID string
 }
 
-func (p *fakeReleasePublisher) PublishReleaseNotification(_ context.Context, email, repo, tag, correlationID string) error {
+func (p *fakeReleasePublisher) PublishReleaseNotifications(_ context.Context, emails []string, repo, tag, correlationID string) error {
 	p.calls = append(p.calls, releaseNotificationCall{
-		email:         email,
+		emails:        append([]string(nil), emails...),
 		repo:          repo,
 		tag:           tag,
 		correlationID: correlationID,
@@ -60,14 +61,14 @@ func TestReleaseExpander_PublishesNotificationForEverySubscriber(t *testing.T) {
 	if store.repo != "owner/repo" {
 		t.Fatalf("store repo = %q, want owner/repo", store.repo)
 	}
-	if len(publisher.calls) != 2 {
-		t.Fatalf("publisher calls = %d, want 2", len(publisher.calls))
+	if len(publisher.calls) != 1 {
+		t.Fatalf("publisher calls = %d, want 1", len(publisher.calls))
 	}
-	if publisher.calls[0] != (releaseNotificationCall{"a@example.com", "owner/repo", "v2.0.0", "corr-1"}) {
-		t.Fatalf("first call = %#v", publisher.calls[0])
+	if got := publisher.calls[0]; got.repo != "owner/repo" || got.tag != "v2.0.0" || got.correlationID != "corr-1" {
+		t.Fatalf("publisher call = %#v", got)
 	}
-	if publisher.calls[1] != (releaseNotificationCall{"b@example.com", "owner/repo", "v2.0.0", "corr-1"}) {
-		t.Fatalf("second call = %#v", publisher.calls[1])
+	if len(publisher.calls[0].emails) != 2 || publisher.calls[0].emails[0] != "a@example.com" || publisher.calls[0].emails[1] != "b@example.com" {
+		t.Fatalf("publisher emails = %#v", publisher.calls[0].emails)
 	}
 }
 

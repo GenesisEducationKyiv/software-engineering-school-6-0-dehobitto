@@ -12,7 +12,7 @@ type SubscriberStore interface {
 }
 
 type ReleaseNotificationPublisher interface {
-	PublishReleaseNotification(ctx context.Context, email, repo, tag, correlationID string) error
+	PublishReleaseNotifications(ctx context.Context, emails []string, repo, tag, correlationID string) error
 }
 
 type ReleaseExpander struct {
@@ -29,10 +29,11 @@ func (e *ReleaseExpander) Expand(ctx context.Context, event contracts.Envelope[c
 	if err != nil {
 		return fmt.Errorf("get release subscribers: %w", err)
 	}
-	for _, email := range subscribers {
-		if err := e.publisher.PublishReleaseNotification(ctx, email, event.Payload.Repo, event.Payload.Tag, event.CorrelationID); err != nil {
-			return fmt.Errorf("publish release notification: %w", err)
-		}
+	if len(subscribers) == 0 {
+		return nil
+	}
+	if err := e.publisher.PublishReleaseNotifications(ctx, subscribers, event.Payload.Repo, event.Payload.Tag, event.CorrelationID); err != nil {
+		return fmt.Errorf("publish release notifications: %w", err)
 	}
 	return nil
 }
