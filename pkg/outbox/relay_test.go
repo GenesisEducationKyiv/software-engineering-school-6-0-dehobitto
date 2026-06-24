@@ -3,11 +3,13 @@ package outbox
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
 
 type fakeOutboxStore struct {
+	mu           sync.Mutex
 	events       []Event
 	fetchErr     error
 	fetchErrs    []error
@@ -17,9 +19,12 @@ type fakeOutboxStore struct {
 	publishedIDs []string
 	failedIDs    []string
 	failedCauses []error
+	onPublished  func()
 }
 
 func (s *fakeOutboxStore) FetchUnpublished(_ context.Context, limit int) ([]Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.fetchLimit = limit
 	if len(s.fetchErrs) > 0 {
 		err := s.fetchErrs[0]
@@ -30,11 +35,20 @@ func (s *fakeOutboxStore) FetchUnpublished(_ context.Context, limit int) ([]Even
 }
 
 func (s *fakeOutboxStore) MarkPublished(_ context.Context, eventID string) error {
+	s.mu.Lock()
 	s.publishedIDs = append(s.publishedIDs, eventID)
-	return s.markPubErr
+	err := s.markPubErr
+	callback := s.onPublished
+	s.mu.Unlock()
+	if callback != nil {
+		callback()
+	}
+	return err
 }
 
 func (s *fakeOutboxStore) MarkFailed(_ context.Context, eventID string, cause error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.failedIDs = append(s.failedIDs, eventID)
 	s.failedCauses = append(s.failedCauses, cause)
 	return s.markFailErr
@@ -135,31 +149,28 @@ func TestRelay_DefaultsBatchSizeAndInterval(t *testing.T) {
 }
 
 func TestRelay_StartContinuesAfterTransientFetchError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
 	store := &fakeOutboxStore{
 		events: []Event{{EventID: "1", Topic: "topic-a", KafkaKey: "key-a", Payload: []byte(`{"a":1}`)}},
 		fetchErrs: []error{
 			errors.New("temporary db error"),
 			nil,
 		},
+		onPublished: cancel,
 	}
 	publisher := &fakeOutboxPublisher{}
 	relay := NewRelay(store, publisher, 10, 5*time.Millisecond)
 
-	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
 		done <- relay.Start(ctx)
 	}()
 
-	deadline := time.Now().Add(200 * time.Millisecond)
-	for len(store.publishedIDs) == 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	cancel()
-
 	if err := <-done; err != nil {
 		t.Fatalf("Start() error = %v, want nil", err)
 	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
 	if len(store.publishedIDs) != 1 || store.publishedIDs[0] != "1" {
 		t.Fatalf("published ids = %#v, want [\"1\"]", store.publishedIDs)
 	}
