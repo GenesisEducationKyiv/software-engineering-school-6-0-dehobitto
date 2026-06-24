@@ -10,6 +10,7 @@ import (
 type fakeOutboxStore struct {
 	events       []Event
 	fetchErr     error
+	fetchErrs    []error
 	markPubErr   error
 	markFailErr  error
 	fetchLimit   int
@@ -20,6 +21,11 @@ type fakeOutboxStore struct {
 
 func (s *fakeOutboxStore) FetchUnpublished(_ context.Context, limit int) ([]Event, error) {
 	s.fetchLimit = limit
+	if len(s.fetchErrs) > 0 {
+		err := s.fetchErrs[0]
+		s.fetchErrs = s.fetchErrs[1:]
+		return s.events, err
+	}
 	return s.events, s.fetchErr
 }
 
@@ -125,5 +131,36 @@ func TestRelay_DefaultsBatchSizeAndInterval(t *testing.T) {
 	}
 	if relay.interval != time.Second {
 		t.Fatalf("interval = %s, want 1s", relay.interval)
+	}
+}
+
+func TestRelay_StartContinuesAfterTransientFetchError(t *testing.T) {
+	store := &fakeOutboxStore{
+		events: []Event{{EventID: "1", Topic: "topic-a", KafkaKey: "key-a", Payload: []byte(`{"a":1}`)}},
+		fetchErrs: []error{
+			errors.New("temporary db error"),
+			nil,
+		},
+	}
+	publisher := &fakeOutboxPublisher{}
+	relay := NewRelay(store, publisher, 10, 5*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- relay.Start(ctx)
+	}()
+
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for len(store.publishedIDs) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+
+	if err := <-done; err != nil {
+		t.Fatalf("Start() error = %v, want nil", err)
+	}
+	if len(store.publishedIDs) != 1 || store.publishedIDs[0] != "1" {
+		t.Fatalf("published ids = %#v, want [\"1\"]", store.publishedIDs)
 	}
 }

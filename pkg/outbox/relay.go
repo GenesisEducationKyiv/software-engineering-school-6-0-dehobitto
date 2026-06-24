@@ -47,7 +47,7 @@ func (r *Relay) Start(ctx context.Context) error {
 			return nil
 		case <-ticker.C:
 			if err := r.PublishOnce(ctx); err != nil {
-				return err
+				continue
 			}
 		}
 	}
