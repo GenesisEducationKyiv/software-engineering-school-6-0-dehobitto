@@ -11,7 +11,7 @@ import (
 
 type fakeStore struct {
 	delivery      Delivery
-	dueRetries    []contracts.NotificationSendRequestedPayload
+	dueRetries    []ScheduledRetry
 	upsertErr     error
 	fetchDueErr   error
 	markSentErr   error
@@ -20,10 +20,14 @@ type fakeStore struct {
 	markSentKey   string
 	markFailedKey string
 	markDeadKey   string
+	markDeadCID   string
 	markFailedAt  time.Time
 }
 
-func (s *fakeStore) UpsertPending(context.Context, contracts.NotificationSendRequestedPayload) (Delivery, error) {
+func (s *fakeStore) UpsertPending(_ context.Context, _ contracts.NotificationSendRequestedPayload, correlationID string) (Delivery, error) {
+	if s.delivery.CorrelationID == "" {
+		s.delivery.CorrelationID = correlationID
+	}
 	return s.delivery, s.upsertErr
 }
 
@@ -38,12 +42,13 @@ func (s *fakeStore) MarkFailed(_ context.Context, key string, _ error, nextAttem
 	return s.markFailedErr
 }
 
-func (s *fakeStore) MarkDead(_ context.Context, key string, _ error) error {
-	s.markDeadKey = key
+func (s *fakeStore) MarkDead(_ context.Context, payload contracts.NotificationSendRequestedPayload, correlationID string, _ error) error {
+	s.markDeadKey = payload.IdempotencyKey
+	s.markDeadCID = correlationID
 	return s.markDeadErr
 }
 
-func (s *fakeStore) FetchDueRetries(context.Context, int) ([]contracts.NotificationSendRequestedPayload, error) {
+func (s *fakeStore) FetchDueRetries(context.Context, int) ([]ScheduledRetry, error) {
 	return s.dueRetries, s.fetchDueErr
 }
 
@@ -55,16 +60,6 @@ type fakeSender struct {
 func (s *fakeSender) Send(string, string) error {
 	s.calls++
 	return s.err
-}
-
-type fakeRetryPublisher struct {
-	err        error
-	dlqCalls   int
-}
-
-func (p *fakeRetryPublisher) DeadLetter(context.Context, contracts.NotificationSendRequestedPayload, error) error {
-	p.dlqCalls++
-	return p.err
 }
 
 func notificationPayload() contracts.NotificationSendRequestedPayload {
@@ -82,9 +77,9 @@ func notificationPayload() contracts.NotificationSendRequestedPayload {
 func TestProcess_SuccessMarksSent(t *testing.T) {
 	store := &fakeStore{delivery: Delivery{Status: StatusPending}}
 	sender := &fakeSender{}
-	svc := NewService(store, sender, &fakeRetryPublisher{}, nil, 3, nil)
+	svc := NewService(store, sender, nil, 3, nil)
 
-	if err := svc.Process(context.Background(), notificationPayload()); err != nil {
+	if err := svc.Process(context.Background(), notificationPayload(), "corr-1"); err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
 	if sender.calls != 1 {
@@ -99,9 +94,9 @@ func TestProcess_SkipsSentAndDeadDeliveries(t *testing.T) {
 	for _, status := range []string{StatusSent, StatusDead} {
 		store := &fakeStore{delivery: Delivery{Status: status}}
 		sender := &fakeSender{}
-		svc := NewService(store, sender, &fakeRetryPublisher{}, nil, 3, nil)
+		svc := NewService(store, sender, nil, 3, nil)
 
-		if err := svc.Process(context.Background(), notificationPayload()); err != nil {
+		if err := svc.Process(context.Background(), notificationPayload(), "corr-1"); err != nil {
 			t.Fatalf("Process(%s) error = %v", status, err)
 		}
 		if sender.calls != 0 {
@@ -113,37 +108,32 @@ func TestProcess_SkipsSentAndDeadDeliveries(t *testing.T) {
 func TestProcess_RetryableFailureSchedulesRetry(t *testing.T) {
 	store := &fakeStore{delivery: Delivery{Status: StatusPending, AttemptCount: 0}}
 	sender := &fakeSender{err: errors.New("smtp down")}
-	retries := &fakeRetryPublisher{}
-	svc := NewService(store, sender, retries, nil, 3, []time.Duration{time.Minute, 10 * time.Minute})
+	svc := NewService(store, sender, nil, 3, []time.Duration{time.Minute, 10 * time.Minute})
 
-	if err := svc.Process(context.Background(), notificationPayload()); err != nil {
+	if err := svc.Process(context.Background(), notificationPayload(), "corr-1"); err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
 	if store.markFailedKey != "owner/repo:v1:user" {
 		t.Fatalf("MarkFailed key = %q", store.markFailedKey)
-	}
-	if retries.dlqCalls != 0 {
-		t.Fatalf("DLQ calls = %d, want 0", retries.dlqCalls)
 	}
 	if time.Until(store.markFailedAt) <= 0 || time.Until(store.markFailedAt) > 2*time.Minute {
 		t.Fatalf("next attempt at = %s, want scheduled in the future", store.markFailedAt)
 	}
 }
 
-func TestProcess_FinalFailurePublishesDLQ(t *testing.T) {
-	store := &fakeStore{delivery: Delivery{Status: StatusFailed, AttemptCount: 2}}
+func TestProcess_FinalFailureMarksDeadWithOriginalCorrelationID(t *testing.T) {
+	store := &fakeStore{delivery: Delivery{Status: StatusFailed, AttemptCount: 2, CorrelationID: "corr-1"}}
 	sender := &fakeSender{err: errors.New("smtp down")}
-	retries := &fakeRetryPublisher{}
-	svc := NewService(store, sender, retries, nil, 3, []time.Duration{time.Minute})
+	svc := NewService(store, sender, nil, 3, []time.Duration{time.Minute})
 
-	if err := svc.Process(context.Background(), notificationPayload()); err != nil {
+	if err := svc.Process(context.Background(), notificationPayload(), "ignored-corr"); err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
 	if store.markDeadKey != "owner/repo:v1:user" {
 		t.Fatalf("MarkDead key = %q", store.markDeadKey)
 	}
-	if retries.dlqCalls != 1 {
-		t.Fatalf("DLQ calls = %d, want 1", retries.dlqCalls)
+	if store.markDeadCID != "corr-1" {
+		t.Fatalf("MarkDead correlation = %q, want corr-1", store.markDeadCID)
 	}
 }
 
@@ -151,47 +141,37 @@ func TestProcess_ReturnsRepositoryErrors(t *testing.T) {
 	repoErr := errors.New("db down")
 
 	store := &fakeStore{upsertErr: repoErr}
-	svc := NewService(store, &fakeSender{}, &fakeRetryPublisher{}, nil, 3, nil)
-	if err := svc.Process(context.Background(), notificationPayload()); !errors.Is(err, repoErr) {
+	svc := NewService(store, &fakeSender{}, nil, 3, nil)
+	if err := svc.Process(context.Background(), notificationPayload(), "corr-1"); !errors.Is(err, repoErr) {
 		t.Fatalf("upsert error = %v, want %v", err, repoErr)
 	}
 
 	store = &fakeStore{delivery: Delivery{Status: StatusPending}, markSentErr: repoErr}
-	svc = NewService(store, &fakeSender{}, &fakeRetryPublisher{}, nil, 3, nil)
-	if err := svc.Process(context.Background(), notificationPayload()); !errors.Is(err, repoErr) {
+	svc = NewService(store, &fakeSender{}, nil, 3, nil)
+	if err := svc.Process(context.Background(), notificationPayload(), "corr-1"); !errors.Is(err, repoErr) {
 		t.Fatalf("mark sent error = %v, want %v", err, repoErr)
 	}
 
 	store = &fakeStore{delivery: Delivery{Status: StatusPending}, markFailedErr: repoErr}
-	svc = NewService(store, &fakeSender{err: errors.New("smtp down")}, &fakeRetryPublisher{}, nil, 3, []time.Duration{time.Minute})
-	if err := svc.Process(context.Background(), notificationPayload()); !errors.Is(err, repoErr) {
+	svc = NewService(store, &fakeSender{err: errors.New("smtp down")}, nil, 3, []time.Duration{time.Minute})
+	if err := svc.Process(context.Background(), notificationPayload(), "corr-1"); !errors.Is(err, repoErr) {
 		t.Fatalf("mark failed error = %v, want %v", err, repoErr)
 	}
 
 	store = &fakeStore{delivery: Delivery{Status: StatusFailed, AttemptCount: 2}, markDeadErr: repoErr}
-	svc = NewService(store, &fakeSender{err: errors.New("smtp down")}, &fakeRetryPublisher{}, nil, 3, []time.Duration{time.Minute})
-	if err := svc.Process(context.Background(), notificationPayload()); !errors.Is(err, repoErr) {
+	svc = NewService(store, &fakeSender{err: errors.New("smtp down")}, nil, 3, []time.Duration{time.Minute})
+	if err := svc.Process(context.Background(), notificationPayload(), "corr-1"); !errors.Is(err, repoErr) {
 		t.Fatalf("mark dead error = %v, want %v", err, repoErr)
 	}
 }
 
-func TestProcess_ReturnsDLQPublisherErrors(t *testing.T) {
-	publishErr := errors.New("kafka down")
-
-	store = &fakeStore{delivery: Delivery{Status: StatusFailed, AttemptCount: 2}}
-	svc = NewService(store, &fakeSender{err: errors.New("smtp down")}, &fakeRetryPublisher{err: publishErr}, nil, 3, []time.Duration{time.Minute})
-	if err := svc.Process(context.Background(), notificationPayload()); !errors.Is(err, publishErr) {
-		t.Fatalf("dlq publish error = %v, want %v", err, publishErr)
-	}
-}
-
 func TestRetryDelayUsesDefaultAndLastConfiguredDelay(t *testing.T) {
-	svc := NewService(&fakeStore{}, &fakeSender{}, nil, nil, 3, nil)
+	svc := NewService(&fakeStore{}, &fakeSender{}, nil, 3, nil)
 	if got := svc.retryDelay(1); got != time.Minute {
 		t.Fatalf("default retryDelay = %s, want 1m", got)
 	}
 
-	svc = NewService(&fakeStore{}, &fakeSender{}, nil, nil, 3, []time.Duration{time.Second})
+	svc = NewService(&fakeStore{}, &fakeSender{}, nil, 3, []time.Duration{time.Second})
 	if got := svc.retryDelay(10); got != time.Second {
 		t.Fatalf("retryDelay overflow = %s, want 1s", got)
 	}
@@ -199,16 +179,16 @@ func TestRetryDelayUsesDefaultAndLastConfiguredDelay(t *testing.T) {
 
 type fakeRetryProcessor struct {
 	err      error
-	payloads []contracts.NotificationSendRequestedPayload
+	payloads []ScheduledRetry
 }
 
-func (p *fakeRetryProcessor) Process(_ context.Context, payload contracts.NotificationSendRequestedPayload) error {
-	p.payloads = append(p.payloads, payload)
+func (p *fakeRetryProcessor) Process(_ context.Context, payload contracts.NotificationSendRequestedPayload, correlationID string) error {
+	p.payloads = append(p.payloads, ScheduledRetry{Payload: payload, CorrelationID: correlationID})
 	return p.err
 }
 
 func TestRetryRelay_ProcessesDueRetries(t *testing.T) {
-	store := &fakeStore{dueRetries: []contracts.NotificationSendRequestedPayload{notificationPayload()}}
+	store := &fakeStore{dueRetries: []ScheduledRetry{{Payload: notificationPayload(), CorrelationID: "corr-1"}}}
 	processor := &fakeRetryProcessor{}
 	relay := NewRetryRelay(store, processor, 10, time.Second)
 
@@ -217,6 +197,9 @@ func TestRetryRelay_ProcessesDueRetries(t *testing.T) {
 	}
 	if len(processor.payloads) != 1 {
 		t.Fatalf("processed payloads = %d, want 1", len(processor.payloads))
+	}
+	if processor.payloads[0].CorrelationID != "corr-1" {
+		t.Fatalf("processed correlation = %q, want corr-1", processor.payloads[0].CorrelationID)
 	}
 }
 
@@ -228,7 +211,7 @@ func TestRetryRelay_ReturnsStoreAndProcessorErrors(t *testing.T) {
 	}
 
 	processErr := errors.New("smtp down")
-	relay = NewRetryRelay(&fakeStore{dueRetries: []contracts.NotificationSendRequestedPayload{notificationPayload()}}, &fakeRetryProcessor{err: processErr}, 10, time.Second)
+	relay = NewRetryRelay(&fakeStore{dueRetries: []ScheduledRetry{{Payload: notificationPayload(), CorrelationID: "corr-1"}}}, &fakeRetryProcessor{err: processErr}, 10, time.Second)
 	if err := relay.ProcessOnce(context.Background()); !errors.Is(err, processErr) {
 		t.Fatalf("ProcessOnce() error = %v, want %v", err, processErr)
 	}

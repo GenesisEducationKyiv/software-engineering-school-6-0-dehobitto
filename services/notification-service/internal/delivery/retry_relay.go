@@ -8,11 +8,11 @@ import (
 )
 
 type RetryStore interface {
-	FetchDueRetries(ctx context.Context, limit int) ([]contracts.NotificationSendRequestedPayload, error)
+	FetchDueRetries(ctx context.Context, limit int) ([]ScheduledRetry, error)
 }
 
 type RetryProcessor interface {
-	Process(ctx context.Context, payload contracts.NotificationSendRequestedPayload) error
+	Process(ctx context.Context, payload contracts.NotificationSendRequestedPayload, correlationID string) error
 }
 
 type RetryRelay struct {
@@ -58,8 +58,8 @@ func (r *RetryRelay) ProcessOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, payload := range payloads {
-		if err := r.processor.Process(ctx, payload); err != nil {
+	for _, retry := range payloads {
+		if err := r.processor.Process(ctx, retry.Payload, retry.CorrelationID); err != nil {
 			return err
 		}
 	}

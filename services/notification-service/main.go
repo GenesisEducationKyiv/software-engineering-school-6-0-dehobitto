@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/errgroup"
@@ -56,9 +57,6 @@ func run() error {
 		outbox.NewBacklogGauge(pool, "notification-service"),
 	)
 
-	producer := kafka.NewProducer(cfg.KafkaBrokers)
-	defer producer.Close() //nolint:errcheck
-
 	repo := delivery.NewRepository(pool)
 	service := delivery.NewService(
 		repo,
@@ -68,7 +66,6 @@ func run() error {
 			SMTPEmail:    cfg.SMTPEmail,
 			SMTPPassword: cfg.SMTPPassword,
 		}),
-		delivery.NewKafkaRetryPublisher(producer),
 		log.WithField("component", "delivery"),
 		cfg.NotificationRetryAttempts,
 		cfg.NotificationRetryDelays,
@@ -99,7 +96,7 @@ func run() error {
 				if err := json.Unmarshal(value, &event); err != nil {
 					return fmt.Errorf("decode notification command: %w", err)
 				}
-				return service.Process(ctx, event.Payload)
+				return service.Process(ctx, event.Payload, event.CorrelationID)
 			})
 		})
 	}
