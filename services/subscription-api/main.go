@@ -64,7 +64,6 @@ func run() error {
 		return fmt.Errorf("connect subscription database: %w", err)
 	}
 	defer pool.Close()
-	prometheus.MustRegister(outbox.NewCollector(pool, "subscription-api"))
 
 	if err := dbmigrations.Run(context.Background(), pool); err != nil {
 		return fmt.Errorf("migrate subscription database: %w", err)
