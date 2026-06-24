@@ -106,13 +106,15 @@ func TestRelay_PublishOncePublishesAndMarksEvents(t *testing.T) {
 	}
 }
 
-func TestRelay_PublishFailureMarksFailedAndContinues(t *testing.T) {
+func TestRelay_PublishFailureMarksFailedAndStopsBatch(t *testing.T) {
 	publishErr := errors.New("kafka down")
 	store := &fakeOutboxStore{events: []Event{
 		{EventID: "1", Topic: "topic-a", KafkaKey: "key-a", Payload: []byte(`{"a":1}`)},
+		{EventID: "2", Topic: "topic-b", KafkaKey: "key-b", Payload: []byte(`{"b":2}`)},
 	}}
 	log := &fakeLogger{}
-	relay := NewRelayWithLogger(store, &fakeOutboxPublisher{err: publishErr}, log, 10, time.Second)
+	publisher := &fakeOutboxPublisher{err: publishErr}
+	relay := NewRelayWithLogger(store, publisher, log, 10, time.Second)
 
 	if err := relay.PublishOnce(context.Background()); err != nil {
 		t.Fatalf("PublishOnce() error = %v", err)
@@ -125,6 +127,9 @@ func TestRelay_PublishFailureMarksFailedAndContinues(t *testing.T) {
 	}
 	if len(store.publishedIDs) != 0 {
 		t.Fatalf("published ids = %#v, want none", store.publishedIDs)
+	}
+	if len(publisher.messages) != 1 {
+		t.Fatalf("published messages = %d, want 1", len(publisher.messages))
 	}
 	if len(log.warns) != 1 || log.warns[0] != "publish outbox event failed" {
 		t.Fatalf("warn logs = %#v", log.warns)

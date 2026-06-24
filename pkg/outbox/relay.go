@@ -84,7 +84,7 @@ func (r *Relay) PublishOnce(ctx context.Context) error {
 					Error("mark outbox event failed")
 				return markErr
 			}
-			continue
+			break
 		}
 		if err := r.repo.MarkPublished(ctx, event.EventID); err != nil {
 			r.log.
