@@ -23,6 +23,10 @@ tests/integration
 **/test-results
 **/dist
 **/build
+.gocache
+tmp
+*.test.exe
+*.test
 .DS_Store
 Thumbs.db
 *.log

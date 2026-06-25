@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -67,6 +68,15 @@ func run(m *testing.M) int {
 type testEnv struct {
 	router *gin.Engine
 	pool   *pgxpool.Pool
+
+	confirmationMu       sync.Mutex
+	confirmationRequests []confirmationRequest
+}
+
+type confirmationRequest struct {
+	Email      string `json:"email"`
+	Repo       string `json:"repo"`
+	ConfirmURL string `json:"confirm_url"`
 }
 
 type MockGitHubClient struct {
@@ -113,14 +123,40 @@ func (mr *MockGitHubClientMockRecorder) GetLatestTag(ctx, repo interface{}) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestTag", reflect.TypeOf((*MockGitHubClient)(nil).GetLatestTag), ctx, repo)
 }
 
-func newTestEnv(t *testing.T, github subscription.GitHubClient) *testEnv {
+func newTestEnv(t *testing.T, github subscription.GitHubClient, notificationStatus int) *testEnv {
 	t.Helper()
 	if _, err := sharedPool.Exec(context.Background(), "TRUNCATE TABLE subscriptions, saga_instances, outbox_events"); err != nil {
 		t.Fatalf("truncate tables: %v", err)
 	}
 
+	if notificationStatus == 0 {
+		notificationStatus = http.StatusAccepted
+	}
+
+	env := &testEnv{pool: sharedPool}
+	notificationServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/notifications/confirmation" {
+			t.Errorf("notification path = %q, want /internal/notifications/confirmation", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		var request confirmationRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode confirmation request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		env.confirmationMu.Lock()
+		env.confirmationRequests = append(env.confirmationRequests, request)
+		env.confirmationMu.Unlock()
+		w.WriteHeader(notificationStatus)
+	}))
+	t.Cleanup(notificationServer.Close)
+
 	repo := subscription.NewRepository(sharedPool)
-	publisher := subscription.NewOutboxNotificationPublisher(sharedPool, "http://localhost:8080")
+	publisher := subscription.NewOutboxNotificationPublisher(sharedPool, "http://localhost:8080", notificationServer.URL)
 	svc := subscription.NewService(repo, publisher, github, nil)
 
 	gin.SetMode(gin.TestMode)
@@ -131,7 +167,8 @@ func newTestEnv(t *testing.T, github subscription.GitHubClient) *testEnv {
 		Gatherer: prometheus.NewRegistry(),
 	})
 
-	return &testEnv{router: router, pool: sharedPool}
+	env.router = router
+	return env
 }
 
 func newGitHubMock(t *testing.T, existsErr error, tag string, tagErr error) *MockGitHubClient {
@@ -253,4 +290,21 @@ func githubError(status int) error {
 func notificationCommandCount(t *testing.T) int {
 	t.Helper()
 	return outboxCount(t, contracts.EventNotificationRequested, contracts.TopicNotificationCommands)
+}
+
+func (e *testEnv) confirmationRequestCount() int {
+	e.confirmationMu.Lock()
+	defer e.confirmationMu.Unlock()
+	return len(e.confirmationRequests)
+}
+
+func (e *testEnv) latestConfirmationRequest(t *testing.T) confirmationRequest {
+	t.Helper()
+
+	e.confirmationMu.Lock()
+	defer e.confirmationMu.Unlock()
+	if len(e.confirmationRequests) == 0 {
+		t.Fatal("expected at least one confirmation request")
+	}
+	return e.confirmationRequests[len(e.confirmationRequests)-1]
 }
