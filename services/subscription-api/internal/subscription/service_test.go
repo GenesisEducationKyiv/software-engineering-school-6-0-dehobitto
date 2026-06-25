@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
-	"github.com/jackc/pgx/v5"
 
 	"subber/pkg/contracts"
 )
@@ -31,16 +30,16 @@ func (m *MockNotificationPublisher) EXPECT() *MockNotificationPublisherMockRecor
 	return m.recorder
 }
 
-func (m *MockNotificationPublisher) PublishConfirmationTx(ctx context.Context, tx pgx.Tx, email, repo, token string) error {
+func (m *MockNotificationPublisher) SendConfirmation(ctx context.Context, email, repo, token string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PublishConfirmationTx", ctx, tx, email, repo, token)
+	ret := m.ctrl.Call(m, "SendConfirmation", ctx, email, repo, token)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-func (mr *MockNotificationPublisherMockRecorder) PublishConfirmationTx(ctx, tx, email, repo, token interface{}) *gomock.Call {
+func (mr *MockNotificationPublisherMockRecorder) SendConfirmation(ctx, email, repo, token interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishConfirmationTx", reflect.TypeOf((*MockNotificationPublisher)(nil).PublishConfirmationTx), ctx, tx, email, repo, token)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendConfirmation", reflect.TypeOf((*MockNotificationPublisher)(nil).SendConfirmation), ctx, email, repo, token)
 }
 
 type MockStore struct {
@@ -87,16 +86,28 @@ func (mr *MockStoreMockRecorder) RequestRepoWatchSaga(ctx, action, repo, email i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestRepoWatchSaga", reflect.TypeOf((*MockStore)(nil).RequestRepoWatchSaga), ctx, action, repo, email)
 }
 
-func (m *MockStore) SaveSubscriptionWithConfirmationRequest(ctx context.Context, sub Subscription, publisher NotificationPublisher) error {
+func (m *MockStore) DeleteUnconfirmedSubscription(ctx context.Context, email, repo, token string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SaveSubscriptionWithConfirmation", ctx, sub, publisher)
+	ret := m.ctrl.Call(m, "DeleteUnconfirmedSubscription", ctx, email, repo, token)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-func (mr *MockStoreMockRecorder) SaveSubscriptionWithConfirmation(ctx, sub, publisher interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) DeleteUnconfirmedSubscription(ctx, email, repo, token interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSubscriptionWithConfirmation", reflect.TypeOf((*MockStore)(nil).SaveSubscriptionWithConfirmationRequest), ctx, sub, publisher)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUnconfirmedSubscription", reflect.TypeOf((*MockStore)(nil).DeleteUnconfirmedSubscription), ctx, email, repo, token)
+}
+
+func (m *MockStore) SaveSubscription(ctx context.Context, sub Subscription) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveSubscription", ctx, sub)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockStoreMockRecorder) SaveSubscription(ctx, sub interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSubscription", reflect.TypeOf((*MockStore)(nil).SaveSubscription), ctx, sub)
 }
 
 func (m *MockStore) SubscriptionExists(ctx context.Context, email, repo string) (bool, error) {
@@ -168,14 +179,14 @@ func TestSubscribe_SuccessSavesUnconfirmedAndPublishesConfirmation(t *testing.T)
 		gh.EXPECT().CheckIfRepoExists(gomock.Any(), "owner/repo").Return(nil),
 		gh.EXPECT().GetLatestTag(gomock.Any(), "owner/repo").Return("v1.0.0", nil),
 		store.EXPECT().
-			SaveSubscriptionWithConfirmation(gomock.Any(), gomock.Any(), notifications).
-			DoAndReturn(func(ctx context.Context, sub Subscription, publisher NotificationPublisher) error {
+			SaveSubscription(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, sub Subscription) error {
 				saved = sub
-				return publisher.PublishConfirmationTx(ctx, nil, sub.Email, sub.Repo, sub.Token)
+				return nil
 			}),
 		notifications.EXPECT().
-			PublishConfirmationTx(gomock.Any(), nil, "user@example.com", "owner/repo", gomock.Any()).
-			DoAndReturn(func(_ context.Context, _ pgx.Tx, _, _, token string) error {
+			SendConfirmation(gomock.Any(), "user@example.com", "owner/repo", gomock.Any()).
+			DoAndReturn(func(_ context.Context, _, _, token string) error {
 				notificationToken = token
 				return nil
 			}),
@@ -262,7 +273,7 @@ func TestSubscribe_SaveFailureDoesNotPublishConfirmation(t *testing.T) {
 		store.EXPECT().SubscriptionExists(gomock.Any(), "user@example.com", "owner/repo").Return(false, nil),
 		gh.EXPECT().CheckIfRepoExists(gomock.Any(), "owner/repo").Return(nil),
 		gh.EXPECT().GetLatestTag(gomock.Any(), "owner/repo").Return("v1.0.0", nil),
-		store.EXPECT().SaveSubscriptionWithConfirmation(gomock.Any(), gomock.Any(), notifications).Return(saveErr),
+		store.EXPECT().SaveSubscription(gomock.Any(), gomock.Any()).Return(saveErr),
 	)
 	svc := NewService(store, notifications, gh, nil)
 
@@ -271,27 +282,37 @@ func TestSubscribe_SaveFailureDoesNotPublishConfirmation(t *testing.T) {
 	}
 }
 
-func TestSubscribe_NotificationFailurePropagatesAfterSave(t *testing.T) {
+func TestSubscribe_NotificationFailureCompensatesSubscription(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := NewMockStore(ctrl)
 	notifications := NewMockNotificationPublisher(ctrl)
 	gh := NewMockGitHubClient(ctrl)
-	publishErr := errors.New("outbox down")
+	publishErr := errors.New("notification down")
+	var saved Subscription
 	gomock.InOrder(
 		store.EXPECT().SubscriptionExists(gomock.Any(), "user@example.com", "owner/repo").Return(false, nil),
 		gh.EXPECT().CheckIfRepoExists(gomock.Any(), "owner/repo").Return(nil),
 		gh.EXPECT().GetLatestTag(gomock.Any(), "owner/repo").Return("v1.0.0", nil),
 		store.EXPECT().
-			SaveSubscriptionWithConfirmation(gomock.Any(), gomock.Any(), notifications).
-			DoAndReturn(func(ctx context.Context, sub Subscription, publisher NotificationPublisher) error {
-				return publisher.PublishConfirmationTx(ctx, nil, sub.Email, sub.Repo, sub.Token)
+			SaveSubscription(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, sub Subscription) error {
+				saved = sub
+				return nil
 			}),
-		notifications.EXPECT().PublishConfirmationTx(gomock.Any(), nil, "user@example.com", "owner/repo", gomock.Any()).Return(publishErr),
+		notifications.EXPECT().SendConfirmation(gomock.Any(), "user@example.com", "owner/repo", gomock.Any()).Return(publishErr),
+		store.EXPECT().DeleteUnconfirmedSubscription(gomock.Any(), "user@example.com", "owner/repo", gomock.Any()).DoAndReturn(
+			func(_ context.Context, _, _, token string) error {
+				if token != saved.Token {
+					t.Fatalf("compensation token = %q, want %q", token, saved.Token)
+				}
+				return nil
+			},
+		),
 	)
 	svc := NewService(store, notifications, gh, nil)
 
-	if err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo"); err == nil {
-		t.Fatal("expected notification publisher error, got nil")
+	if err := svc.Subscribe(context.Background(), "user@example.com", "owner/repo"); !errors.Is(err, ErrConfirmationUnavailable) {
+		t.Fatalf("Subscribe() error = %v, want ErrConfirmationUnavailable", err)
 	}
 }
 
@@ -306,11 +327,12 @@ func TestSubscribe_TagFetchFailureStillSaves(t *testing.T) {
 		gh.EXPECT().CheckIfRepoExists(gomock.Any(), "owner/repo").Return(nil),
 		gh.EXPECT().GetLatestTag(gomock.Any(), "owner/repo").Return("", errors.New("timeout")),
 		store.EXPECT().
-			SaveSubscriptionWithConfirmation(gomock.Any(), gomock.Any(), notifications).
-			DoAndReturn(func(_ context.Context, sub Subscription, _ NotificationPublisher) error {
+			SaveSubscription(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, sub Subscription) error {
 				saved = sub
 				return nil
 			}),
+		notifications.EXPECT().SendConfirmation(gomock.Any(), "user@example.com", "owner/repo", gomock.Any()).Return(nil),
 	)
 	svc := NewService(store, notifications, gh, nil)
 

@@ -169,6 +169,7 @@ func TestSubscribe_MapsServiceErrorsToHTTPStatus(t *testing.T) {
 		{"repo not found", subscription.ErrRepoNotFound, http.StatusNotFound},
 		{"rate limit", subscription.ErrGitHubRateLimit, http.StatusTooManyRequests},
 		{"github unavailable", subscription.ErrGitHubUnavailable, http.StatusBadGateway},
+		{"confirmation unavailable", subscription.ErrConfirmationUnavailable, http.StatusServiceUnavailable},
 		{"unknown", errors.New("boom"), http.StatusInternalServerError},
 		{"success", nil, http.StatusOK},
 	}

@@ -43,20 +43,34 @@ func (r *Repository) SubscriptionExists(ctx context.Context, email, repo string)
 	return exists, nil
 }
 
-func (r *Repository) SaveSubscriptionWithConfirmationRequest(ctx context.Context, sub Subscription, publisher NotificationPublisher) error {
+func (r *Repository) SaveSubscription(ctx context.Context, sub Subscription) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin subscription confirmation: %w", err)
+		return fmt.Errorf("begin save subscription: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	if err := saveSubscription(ctx, tx, sub); err != nil {
 		return err
 	}
-	if err := publisher.PublishConfirmationTx(ctx, tx, sub.Email, sub.Repo, sub.Token); err != nil {
-		return err
-	}
 	return tx.Commit(ctx)
+}
+
+func (r *Repository) DeleteUnconfirmedSubscription(ctx context.Context, email, repo, token string) error {
+	tag, err := r.pool.Exec(ctx, `
+DELETE FROM subscriptions
+WHERE email = $1
+	AND repo = $2
+	AND token = $3
+	AND confirmed = false
+`, email, repo, token)
+	if err != nil {
+		return fmt.Errorf("delete unconfirmed subscription compensation: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("unconfirmed subscription compensation skipped")
+	}
+	return nil
 }
 
 func saveSubscription(ctx context.Context, execer subscriptionExecer, sub Subscription) error {

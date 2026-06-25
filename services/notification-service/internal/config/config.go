@@ -12,6 +12,7 @@ type Config struct {
 	sharedconfig.Database
 	sharedconfig.Metrics
 	sharedconfig.Kafka
+	ServerPort                string
 	SMTPHost                  string
 	SMTPPort                  string
 	SMTPEmail                 string
@@ -26,6 +27,7 @@ func Load() *Config {
 		Database:                  sharedconfig.LoadDatabase(),
 		Metrics:                   sharedconfig.LoadMetrics(),
 		Kafka:                     sharedconfig.LoadKafka(),
+		ServerPort:                env.String("PORT", ""),
 		SMTPHost:                  env.String("SMTP_HOST", ""),
 		SMTPPort:                  env.String("SMTP_PORT", ""),
 		SMTPEmail:                 env.String("SMTP_EMAIL", ""),

@@ -124,6 +124,9 @@ func (h handler) subscribe(c *gin.Context) {
 	case errors.Is(err, subscription.ErrGitHubUnavailable):
 		h.observeSubscribe("github_unavailable")
 		c.JSON(http.StatusBadGateway, gin.H{"error": "External API error"})
+	case errors.Is(err, subscription.ErrConfirmationUnavailable):
+		h.observeSubscribe("confirmation_unavailable")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service temporarily unavailable. Try again later."})
 	default:
 		h.observeSubscribe("error")
 		h.log.WithField("repo", input.Repo).WithError(err).Error("subscribe failed")

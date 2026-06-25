@@ -72,7 +72,7 @@ func run() error {
 
 	repo := subscription.NewRepository(pool)
 	githubClient := subscription.NewHTTPGitHubClient(cfg.GitHubBaseURL, cfg.GitHubToken)
-	notificationPublisher := subscription.NewOutboxNotificationPublisher(pool, cfg.BaseURL)
+	notificationPublisher := subscription.NewOutboxNotificationPublisher(pool, cfg.BaseURL, cfg.NotificationServiceURL)
 	svc := subscription.NewService(
 		repo,
 		notificationPublisher,

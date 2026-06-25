@@ -172,6 +172,20 @@ func TestProcess_SuccessMarksSent(t *testing.T) {
 	}
 }
 
+func TestSendConfirmation_SendsEmailSynchronously(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := NewMockStore(ctrl)
+	sender := NewMockEmailSender(ctrl)
+	sender.EXPECT().
+		Send("user@example.com", "Welcome! Please confirm your subscription to GitHub repository updates by clicking here: http://api/confirm/token").
+		Return(nil)
+	svc := NewService(store, sender, nil, nil, 3, nil)
+
+	if err := svc.SendConfirmation(context.Background(), "user@example.com", "owner/repo", "http://api/confirm/token"); err != nil {
+		t.Fatalf("SendConfirmation() error = %v", err)
+	}
+}
+
 func TestProcess_SkipsSentAndDeadDeliveries(t *testing.T) {
 	for _, status := range []string{StatusSent, StatusDead} {
 		ctrl := gomock.NewController(t)
