@@ -11,6 +11,7 @@ import (
 	"github.com/golang/mock/gomock"
 
 	"subber/pkg/contracts"
+	"subber/pkg/kafka"
 )
 
 type MockReleaseProvider struct {
@@ -148,8 +149,8 @@ func TestHandleWatchlistCommand_ReturnsDecodeUnsupportedAndStoreErrors(t *testin
 	store := NewMockStore(ctrl)
 	releases := NewMockReleaseProvider(ctrl)
 	svc := NewService(store, releases, nil, 10, time.Minute)
-	if err := svc.HandleWatchlistCommand(context.Background(), []byte("not-json")); err == nil {
-		t.Fatal("expected decode error, got nil")
+	if err := svc.HandleWatchlistCommand(context.Background(), []byte("not-json")); !errors.Is(err, kafka.ErrNonRetryable) {
+		t.Fatalf("decode error = %v, want ErrNonRetryable", err)
 	}
 
 	unsupported := contracts.Envelope[contracts.RepoWatchCommandPayload]{
