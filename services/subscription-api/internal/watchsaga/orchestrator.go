@@ -44,16 +44,36 @@ type Instance struct {
 }
 
 type Orchestrator struct {
-	pool     *pgxpool.Pool
-	now      func() time.Time
-	deadline time.Duration
+	transactions transactionBeginner
+	now          func() time.Time
+	deadline     time.Duration
+}
+
+type transactionBeginner interface {
+	BeginTx(ctx context.Context) (pgx.Tx, error)
+}
+
+type poolTransactionBeginner struct {
+	pool *pgxpool.Pool
+}
+
+func (b poolTransactionBeginner) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	tx, err := b.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return tx, nil
 }
 
 func New(pool *pgxpool.Pool) *Orchestrator {
+	return NewWithTransactions(poolTransactionBeginner{pool: pool})
+}
+
+func NewWithTransactions(transactions transactionBeginner) *Orchestrator {
 	return &Orchestrator{
-		pool:     pool,
-		now:      func() time.Time { return time.Now().UTC() },
-		deadline: DefaultDeadline,
+		transactions: transactions,
+		now:          func() time.Time { return time.Now().UTC() },
+		deadline:     DefaultDeadline,
 	}
 }
 
@@ -71,7 +91,7 @@ func (o *Orchestrator) HandleRequest(ctx context.Context, event contracts.Envelo
 		return fmt.Errorf("repo is required")
 	}
 
-	tx, err := o.pool.Begin(ctx)
+	tx, err := o.transactions.BeginTx(ctx)
 	if err != nil {
 		return fmt.Errorf("begin saga request: %w", err)
 	}
@@ -116,7 +136,7 @@ func (o *Orchestrator) HandleAck(ctx context.Context, event contracts.Envelope[c
 		return err
 	}
 
-	tx, err := o.pool.Begin(ctx)
+	tx, err := o.transactions.BeginTx(ctx)
 	if err != nil {
 		return fmt.Errorf("begin saga ack: %w", err)
 	}
@@ -207,7 +227,7 @@ func (o *Orchestrator) RetryDue(ctx context.Context, limit int) error {
 		limit = DefaultRetryLimit
 	}
 
-	tx, err := o.pool.Begin(ctx)
+	tx, err := o.transactions.BeginTx(ctx)
 	if err != nil {
 		return fmt.Errorf("begin saga retries: %w", err)
 	}
