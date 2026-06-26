@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -147,7 +148,7 @@ func registerGRPCServer(ctx context.Context, group *errgroup.Group, port string,
 	})
 	group.Go(func() error {
 		log.WithField("addr", grpcListener.Addr().String()).Info("grpc server listening")
-		if err := grpcServer.Serve(grpcListener); err != nil && err != grpc.ErrServerStopped {
+		if err := grpcServer.Serve(grpcListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			return fmt.Errorf("serve grpc: %w", err)
 		}
 		return nil
