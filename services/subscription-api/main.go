@@ -8,12 +8,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"subber/pkg/contracts"
 	"subber/pkg/kafka"
@@ -72,7 +75,23 @@ func run() error {
 
 	repo := subscription.NewRepository(pool)
 	githubClient := subscription.NewHTTPGitHubClient(cfg.GitHubBaseURL, cfg.GitHubToken)
-	notificationPublisher := subscription.NewOutboxNotificationPublisher(pool, cfg.BaseURL, cfg.NotificationServiceURL)
+	var notificationPublisher interface {
+		subscription.NotificationPublisher
+		subscription.ReleaseNotificationPublisher
+	}
+	switch strings.ToLower(cfg.NotificationTransport) {
+	case "", "kafka":
+		notificationPublisher = subscription.NewOutboxNotificationPublisher(pool, cfg.BaseURL, cfg.NotificationServiceURL)
+	case "grpc":
+		conn, err := grpc.NewClient(cfg.NotificationGRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return fmt.Errorf("create notification grpc client: %w", err)
+		}
+		defer conn.Close() //nolint:errcheck
+		notificationPublisher = subscription.NewGrpcNotificationPublisher(conn, cfg.BaseURL)
+	default:
+		return fmt.Errorf("unsupported notification transport %q", cfg.NotificationTransport)
+	}
 	svc := subscription.NewService(
 		repo,
 		notificationPublisher,

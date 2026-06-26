@@ -19,6 +19,8 @@ type Config struct {
 	SMTPPassword              string
 	NotificationRetryAttempts int
 	NotificationRetryDelays   []time.Duration
+	NotificationTransport     string
+	GRPCPort                  string
 	sharedconfig.Logging
 }
 
@@ -34,6 +36,8 @@ func Load() *Config {
 		SMTPPassword:              env.String("SMTP_PASSWORD", ""),
 		NotificationRetryAttempts: env.Int("NOTIFICATION_RETRY_ATTEMPTS", 0),
 		NotificationRetryDelays:   env.DurationList("NOTIFICATION_RETRY_DELAYS", nil),
+		NotificationTransport:     env.String("NOTIFICATION_TRANSPORT", "kafka"),
+		GRPCPort:                  env.String("GRPC_PORT", "9093"),
 		Logging:                   sharedconfig.LoadLogging(),
 	}
 }

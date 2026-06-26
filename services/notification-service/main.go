@@ -4,16 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
 
 	"subber/pkg/contracts"
+	notificationv1 "subber/pkg/gen/notification/v1"
 	"subber/pkg/kafka"
 	"subber/pkg/logger"
 	"subber/pkg/metrics"
@@ -22,6 +26,7 @@ import (
 	"subber/services/notification-service/internal/config"
 	"subber/services/notification-service/internal/delivery"
 	"subber/services/notification-service/internal/email"
+	"subber/services/notification-service/internal/grpcapi"
 )
 
 func main() {
@@ -66,6 +71,14 @@ func run() error {
 	)
 	retryScheduler := delivery.NewRetryScheduler(repo, log.WithField("component", "retry-scheduler"), 100, time.Second)
 
+	notificationTransport := strings.ToLower(cfg.NotificationTransport)
+	if notificationTransport == "" {
+		notificationTransport = "kafka"
+	}
+	if notificationTransport != "kafka" && notificationTransport != "grpc" {
+		return fmt.Errorf("unsupported notification transport %q", cfg.NotificationTransport)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -92,29 +105,52 @@ func run() error {
 			return notificationServer.Shutdown(shutdownCtx)
 		})
 	}
+	if notificationTransport == "grpc" {
+		grpcListener, err := net.Listen("tcp", ":"+cfg.GRPCPort)
+		if err != nil {
+			return fmt.Errorf("listen grpc: %w", err)
+		}
+		defer grpcListener.Close() //nolint:errcheck
+		grpcServer := grpc.NewServer()
+		notificationv1.RegisterNotificationServiceServer(grpcServer, grpcapi.NewServer(service))
+		group.Go(func() error {
+			<-ctx.Done()
+			grpcServer.GracefulStop()
+			return nil
+		})
+		group.Go(func() error {
+			log.WithField("addr", grpcListener.Addr().String()).Info("grpc server listening")
+			if err := grpcServer.Serve(grpcListener); err != nil {
+				return fmt.Errorf("serve grpc: %w", err)
+			}
+			return nil
+		})
+	}
 	group.Go(func() error {
 		return retryScheduler.Start(ctx)
 	})
-	for _, topic := range []string{
-		contracts.TopicNotificationCommands,
-	} {
-		topic := topic
-		consumer := kafka.NewConsumerWithLogger(cfg.KafkaBrokers, topic, "notification-service", log.WithField("component", "kafka-consumer").WithField("topic", topic)).
-			WithDeadLetter(contracts.TopicNotificationDLQ, producer)
-		defer consumer.Close() //nolint:errcheck
-		prometheus.MustRegister(kafka.NewConsumerLagGauge("notification-service", topic, consumer))
-		group.Go(func() error {
-			return consumer.Start(ctx, func(ctx context.Context, _ string, value []byte) error {
-				var event contracts.Envelope[contracts.NotificationSendRequestedPayload]
-				if err := json.Unmarshal(value, &event); err != nil {
-					return kafka.NonRetryable(fmt.Errorf("decode notification command: %w", err))
-				}
-				if event.EventType != contracts.EventNotificationRequested {
-					return kafka.NonRetryable(fmt.Errorf("unsupported notification event type %q", event.EventType))
-				}
-				return service.Process(ctx, event.Payload)
+	if notificationTransport == "kafka" {
+		for _, topic := range []string{
+			contracts.TopicNotificationCommands,
+		} {
+			topic := topic
+			consumer := kafka.NewConsumerWithLogger(cfg.KafkaBrokers, topic, "notification-service", log.WithField("component", "kafka-consumer").WithField("topic", topic)).
+				WithDeadLetter(contracts.TopicNotificationDLQ, producer)
+			defer consumer.Close() //nolint:errcheck
+			prometheus.MustRegister(kafka.NewConsumerLagGauge("notification-service", topic, consumer))
+			group.Go(func() error {
+				return consumer.Start(ctx, func(ctx context.Context, _ string, value []byte) error {
+					var event contracts.Envelope[contracts.NotificationSendRequestedPayload]
+					if err := json.Unmarshal(value, &event); err != nil {
+						return kafka.NonRetryable(fmt.Errorf("decode notification command: %w", err))
+					}
+					if event.EventType != contracts.EventNotificationRequested {
+						return kafka.NonRetryable(fmt.Errorf("unsupported notification event type %q", event.EventType))
+					}
+					return service.Process(ctx, event.Payload)
+				})
 			})
-		})
+		}
 	}
 
 	return group.Wait()

@@ -26,7 +26,8 @@ func TestLoad_EmptyWhenEnvMissing(t *testing.T) {
 	unsetKeys(t,
 		"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME",
 		"PORT", "API_KEY", "BASE_URL", "KAFKA_BROKERS", "GITHUB_TOKEN",
-		"GITHUB_BASE_URL", "LOG_LEVEL", "LOG_FILE", "LOG_SIDECAR_ENABLED", "LOG_SIDECAR_URL",
+		"GITHUB_BASE_URL", "NOTIFICATION_TRANSPORT", "NOTIFICATION_GRPC_ADDR",
+		"LOG_LEVEL", "LOG_FILE", "LOG_SIDECAR_ENABLED", "LOG_SIDECAR_URL",
 	)
 
 	cfg := Load()
@@ -43,6 +44,12 @@ func TestLoad_EmptyWhenEnvMissing(t *testing.T) {
 	if cfg.GitHubBaseURL != "" {
 		t.Fatalf("GitHubBaseURL = %q, want empty", cfg.GitHubBaseURL)
 	}
+	if cfg.NotificationTransport != "kafka" {
+		t.Fatalf("NotificationTransport = %q, want kafka", cfg.NotificationTransport)
+	}
+	if cfg.NotificationGRPCAddress != "notification-service:9093" {
+		t.Fatalf("NotificationGRPCAddress = %q, want notification-service:9093", cfg.NotificationGRPCAddress)
+	}
 	if cfg.LogFile != "" {
 		t.Fatalf("LogFile = %q, want empty", cfg.LogFile)
 	}
@@ -57,6 +64,8 @@ func TestLoad_FromEnv(t *testing.T) {
 	t.Setenv("PORT", "9090")
 	t.Setenv("API_KEY", "secret")
 	t.Setenv("KAFKA_BROKERS", "kafka-1:9092,kafka-2:9092")
+	t.Setenv("NOTIFICATION_TRANSPORT", "grpc")
+	t.Setenv("NOTIFICATION_GRPC_ADDR", "notifier:9191")
 	t.Setenv("LOG_FILE", "/tmp/subscription-api.log")
 	t.Setenv("LOG_SIDECAR_ENABLED", "false")
 
@@ -70,6 +79,9 @@ func TestLoad_FromEnv(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg.KafkaBrokers, []string{"kafka-1:9092", "kafka-2:9092"}) {
 		t.Fatalf("KafkaBrokers = %#v", cfg.KafkaBrokers)
+	}
+	if cfg.NotificationTransport != "grpc" || cfg.NotificationGRPCAddress != "notifier:9191" {
+		t.Fatalf("unexpected notification config: transport=%q addr=%q", cfg.NotificationTransport, cfg.NotificationGRPCAddress)
 	}
 	if cfg.LogFile != "/tmp/subscription-api.log" {
 		t.Fatalf("LogFile = %q, want /tmp/subscription-api.log", cfg.LogFile)

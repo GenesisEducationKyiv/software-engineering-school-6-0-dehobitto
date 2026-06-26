@@ -27,7 +27,7 @@ func TestLoad_EmptyWhenEnvMissing(t *testing.T) {
 	unsetKeys(t,
 		"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME",
 		"METRICS_PORT", "KAFKA_BROKERS", "SMTP_HOST", "SMTP_PORT", "SMTP_EMAIL", "SMTP_PASSWORD",
-		"NOTIFICATION_RETRY_ATTEMPTS", "NOTIFICATION_RETRY_DELAYS",
+		"NOTIFICATION_RETRY_ATTEMPTS", "NOTIFICATION_RETRY_DELAYS", "NOTIFICATION_TRANSPORT", "GRPC_PORT",
 		"LOG_LEVEL", "LOG_FILE", "LOG_SIDECAR_ENABLED", "LOG_SIDECAR_URL",
 	)
 
@@ -48,6 +48,12 @@ func TestLoad_EmptyWhenEnvMissing(t *testing.T) {
 	if cfg.NotificationRetryDelays != nil {
 		t.Fatalf("NotificationRetryDelays = %#v, want nil", cfg.NotificationRetryDelays)
 	}
+	if cfg.NotificationTransport != "kafka" {
+		t.Fatalf("NotificationTransport = %q, want kafka", cfg.NotificationTransport)
+	}
+	if cfg.GRPCPort != "9093" {
+		t.Fatalf("GRPCPort = %q, want 9093", cfg.GRPCPort)
+	}
 	if cfg.LogFile != "" {
 		t.Fatalf("LogFile = %q, want empty", cfg.LogFile)
 	}
@@ -65,6 +71,8 @@ func TestLoad_FromEnv(t *testing.T) {
 	t.Setenv("SMTP_PASSWORD", "secret")
 	t.Setenv("NOTIFICATION_RETRY_ATTEMPTS", "5")
 	t.Setenv("NOTIFICATION_RETRY_DELAYS", "2m,15m")
+	t.Setenv("NOTIFICATION_TRANSPORT", "grpc")
+	t.Setenv("GRPC_PORT", "9191")
 	t.Setenv("LOG_FILE", "/tmp/notifier.log")
 	t.Setenv("LOG_SIDECAR_ENABLED", "false")
 
@@ -84,6 +92,12 @@ func TestLoad_FromEnv(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg.NotificationRetryDelays, []time.Duration{2 * time.Minute, 15 * time.Minute}) {
 		t.Fatalf("NotificationRetryDelays = %#v", cfg.NotificationRetryDelays)
+	}
+	if cfg.NotificationTransport != "grpc" {
+		t.Fatalf("NotificationTransport = %q, want grpc", cfg.NotificationTransport)
+	}
+	if cfg.GRPCPort != "9191" {
+		t.Fatalf("GRPCPort = %q, want 9191", cfg.GRPCPort)
 	}
 	if cfg.LogFile != "/tmp/notifier.log" {
 		t.Fatalf("LogFile = %q, want /tmp/notifier.log", cfg.LogFile)

@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package notification.v1;
+
+option go_package = "subber/pkg/gen/notification/v1;notificationv1";
+
+service NotificationService {
+  rpc SendNotification(SendNotificationRequest) returns (SendNotificationResponse);
+}
+
+message SendNotificationRequest {
+  string notification_id  = 1;
+  string idempotency_key  = 2;
+  string recipient_email  = 3;
+  string email_hash       = 4;
+  string repo             = 5;
+  string tag              = 6;
+  string message          = 7;
+  string correlation_id   = 8;
+}
+
+message SendNotificationResponse {
+  bool accepted = 1;
+}

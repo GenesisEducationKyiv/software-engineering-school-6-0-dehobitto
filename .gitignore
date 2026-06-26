@@ -2,3 +2,4 @@
 **/.env
 .idea/
 /PR_OBSERVABILITY_NOTES.md
+.gocache/
