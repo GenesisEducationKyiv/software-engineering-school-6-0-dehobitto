@@ -1,0 +1,9 @@
+go 1.26.2
+
+use (
+	.
+	./pkg
+	./services/notification-service
+	./services/scanner-service
+	./services/subscription-api
+)

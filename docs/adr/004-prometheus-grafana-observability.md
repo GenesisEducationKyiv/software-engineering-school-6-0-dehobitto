@@ -1,10 +1,12 @@
 ## ADR-004: Export RED metrics to Prometheus and visualize them in Grafana
 
-**Status:** Accepted  
+**Status:** Superseded for deployment details by ADR-007 and ADR-008  
 **Date:** 2026-06-07  
 **Author:** Oleksandr Makarov
 
 ## Context
+
+> Historical note: this ADR selected Prometheus/Grafana and RED-style metrics for the original service shape. The target microservice topology keeps `/metrics` endpoints and uses new Prometheus/Grafana provisioning for the three services. The old RabbitMQ/Logstash observability overlay and `scripts/observability-smoke.*` scripts are no longer part of the codebase.
 
 The service needs operational metrics that answer the basic production questions:
 
@@ -38,10 +40,10 @@ The application owns metric definitions and exposes them on `/metrics`. Promethe
   * `log_entries_published_total`
   * `log_publish_errors_total`
 * **Labels:** route templates are used instead of raw paths so labels stay bounded and tokens are never emitted as metric labels.
-* **Infrastructure:** `docker/docker-compose.observability.yml` adds Prometheus and Grafana. Prometheus config lives in `docker/prometheus/prometheus.yml`. Grafana datasource and dashboard provisioning live under `docker/grafana/provisioning`.
-* **RabbitMQ metrics:** the logging overlay enables the RabbitMQ Prometheus plugin. Prometheus scrapes RabbitMQ to monitor the main log queue and dead-letter queue.
-* **Alerts:** Prometheus alert rules are provisioned from `docker/prometheus/rules/subber-alerts.yml` for target availability, 5xx ratio, p95 latency, email failures, dropped log entries, DLQ messages, and log queue backlog.
-* **Smoke verification:** `scripts/observability-smoke.ps1` and `scripts/observability-smoke.sh` verify the running local stack end to end.
+* **Target infrastructure:** all three services expose `/metrics`; Prometheus scrapes them through `deployments/docker/prometheus/prometheus.yml`.
+* **Grafana provisioning:** Grafana loads the Prometheus datasource and `Subber Overview` dashboard from `deployments/docker/grafana`.
+* **Logging metrics:** RabbitMQ log-queue metrics are obsolete because log transport moved to Vector in ADR-007.
+* **Smoke verification:** runtime verification moved to `scripts/runtime-smoke.ps1` and `scripts/runtime-smoke.sh`.
 
 ## Consequences
 
@@ -50,13 +52,10 @@ The application owns metric definitions and exposes them on `/metrics`. Promethe
 * RED metrics are queryable with PromQL and visualized without manual UI setup.
 * Metrics are testable because the registry is injected instead of using the global default registry.
 * Route labels are bounded and safe for aggregation.
-* Grafana dashboards and datasources are reproducible from source control.
-* Alert rules are version-controlled with the rest of the observability stack.
-* DLQ and backlog conditions are visible from metrics instead of requiring manual RabbitMQ inspection.
+* Prometheus target configuration is reproducible from source control.
+* Grafana dashboard and datasource provisioning are reproducible from source control.
 
 ### Negatives
 
-* Additional services increase local compose resource usage.
+* Alerts still need to be recreated for the microservice topology.
 * Histogram buckets use Prometheus defaults for now; they may need tuning after observing real latency distributions.
-* The first dashboard is intentionally focused on core RED and worker health; deeper business metrics can be added once operational baselines are known.
-* Alert rules are loaded locally but no Alertmanager or external notification channel is configured yet.

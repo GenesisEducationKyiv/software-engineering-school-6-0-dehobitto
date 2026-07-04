@@ -1,73 +1,95 @@
 # Testing
 
-Prerequisites: **git**, **docker**, **Go**.
-
-## Run All Tests
-
-**Linux / macOS / Git Bash:**
-```sh
-sh scripts/test.sh
-```
-
-**Windows (PowerShell):**
-```sh
-.\scripts\test.ps1
-```
-
-## Manual test + k6 loadtest
-
-```bash
-# start app and logging stack first
-docker compose -f docker-compose.yml -f docker/docker-compose.logging.yml -f docker/docker-compose.observability.yml up --build -d
-
-# then run k6 (exits automatically when done)
-docker compose -f docker-compose.yml -f docker/docker-compose.loadtest.yml run --rm k6
-```
-
----
+Prerequisites: **Go**, **Docker**, and Docker Compose `2.20.3` or newer.
 
 ## Unit Tests
 
-No external dependencies.
-
 ```sh
-go test ./...
+go test ./pkg/... ./services/subscription-api/... ./services/scanner-service/... ./services/notification-service/...
 ```
 
 ## Integration Tests
 
-PostgreSQL spins up automatically via Docker (testcontainers). Docker must be running.
+PostgreSQL spins up automatically through testcontainers. Docker must be running.
 
 ```sh
-go test -tags integration ./tests/integration/...
+go test -tags integration ./tests/integration/... ./services/subscription-api/...
 ```
 
-## E2E Tests
-
-The E2E suite launches a complete test environment: frontend, real backend, PostgreSQL, Redis, and a fake GitHub API. API calls are not mocked in the browser.
+## Compose Validation
 
 ```sh
-docker compose -f docker-compose.yml -f docker/docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from e2e e2e
-docker compose -f docker-compose.yml -f docker/docker-compose.e2e.yml down -v
+docker compose -f compose.microservices.yml config --quiet
 ```
 
+## Runtime Smoke
 
-## Observability Smoke Test
+Runtime smoke validates that the local stack is alive: service endpoints, metrics endpoints, Prometheus targets, Grafana provisioning, Kafka topics, Mailpit, Elasticsearch, Kibana, and Vector log indexing.
 
-Requires the full Docker Compose observability stack to be running:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/runtime-smoke.ps1
+```
+
+or:
 
 ```sh
-docker compose -f docker-compose.yml -f docker/docker-compose.logging.yml -f docker/docker-compose.observability.yml up --build -d
+sh scripts/runtime-smoke.sh
 ```
 
-Then run:
+Start the stack from the smoke script when needed:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/runtime-smoke.ps1 -StartStack -Build
+```
+
+or:
 
 ```sh
-# Linux / macOS / Git Bash
-sh scripts/observability-smoke.sh
-
-# Windows PowerShell
-.\scripts\observability-smoke.ps1
+START_STACK=true BUILD=true sh scripts/runtime-smoke.sh
 ```
 
-The smoke test checks app metrics, Prometheus target/rules, Grafana health, Kibana health, Elasticsearch ILM setup, one request metric in Prometheus, and the matching request log in Elasticsearch.
+## Kafka E2E
+
+Kafka E2E verifies the business flow through the message bus:
+
+```text
+subscribe
+-> confirm
+-> RepoWatchStartRequested
+-> scanner watchlist
+-> ReleaseDetected
+-> NotificationSendRequested
+-> notification-service sent delivery
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/kafka-e2e.ps1
+```
+
+or:
+
+```sh
+sh scripts/kafka-e2e.sh
+```
+
+## Load Test
+
+The load test uses `k6` and targets the running subscription API. If `k6` is not installed locally, run it through Docker.
+
+```powershell
+docker run --rm -i `
+  -e BASE_URL=http://host.docker.internal:8080 `
+  -e API_KEY=dev-api-key `
+  -v ${PWD}/scripts:/scripts `
+  grafana/k6 run /scripts/loadtest.js
+```
+
+Use a different target URL or API key when needed by changing `BASE_URL` and `API_KEY`.
+
+```sh
+docker run --rm -i \
+  -e BASE_URL=http://host.docker.internal:8080 \
+  -e API_KEY=dev-api-key \
+  -v "$PWD/scripts:/scripts" \
+  grafana/k6 run /scripts/loadtest.js
+```

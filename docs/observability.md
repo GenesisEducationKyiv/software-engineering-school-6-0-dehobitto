@@ -1,109 +1,134 @@
 # Observability
 
-This project uses logs, metrics, dashboards, alerts, and smoke checks as one local observability workflow.
+Subber uses three observability paths:
 
-## Stack
+* structured JSON logs;
+* Prometheus metrics;
+* local smoke checks for service readiness and end-to-end flows.
+
+## Target Stack
 
 | Layer | Tool | Local URL |
 | --- | --- | --- |
-| Application metrics | `/metrics` | http://localhost:8080/metrics |
-| Metrics store | Prometheus | http://localhost:9090 |
-| Metrics dashboards | Grafana | http://localhost:3000 |
-| Log broker | RabbitMQ | http://localhost:15672 |
+| Subscription API | HTTP | http://localhost:8080 |
+| Subscription API metrics | `/metrics` | http://localhost:8080/metrics |
+| Scanner metrics | `/metrics` | http://localhost:8081/metrics |
+| Notification metrics | `/metrics` | http://localhost:8082/metrics |
+| Kafka | Domain events and jobs | localhost:9092 |
+| Redis | Scanner GitHub API cache | localhost:6379 |
 | Log search | Elasticsearch | http://localhost:9200 |
-| Log dashboards | Kibana | http://localhost:5601 |
+| Log dashboard/search UI | Kibana | http://localhost:5601 |
+| Log collector | Vector | http://localhost:8686 |
+| Metrics scraper | Prometheus | http://localhost:9090 |
+| Metrics dashboards | Grafana | http://localhost:3000 |
 
-Grafana login for local development is `admin / admin`. RabbitMQ local login is `guest / guest`.
+Prometheus scrapes all three services. Grafana is provisioned with a Prometheus datasource and the `Subber Overview` dashboard.
+
+Kibana is included for log inspection against Elasticsearch. The restored dashboard artifact is stored at [deployments/docker/kibana/dashboards.ndjson](../deployments/docker/kibana/dashboards.ndjson) and is mounted into the Kibana container at `/usr/share/kibana/dashboards/subber-dashboard.ndjson`.
 
 ## Run
 
-Start the complete local observability stack:
+The target microservice topology is started from the root compose file:
 
 ```sh
-docker compose -f docker-compose.yml -f docker/docker-compose.logging.yml -f docker/docker-compose.observability.yml up --build -d
+docker compose -f compose.microservices.yml up --build -d
 ```
 
-Generate traffic:
+This root file uses Docker Compose `include`, so Docker Compose `2.20.3` or newer is required.
+
+Compose service configuration is env-based. Common local defaults live in [deployments/docker/env/common.env.example](../deployments/docker/env/common.env.example), and service-specific defaults live in each service directory.
+
+Stop the stack:
 
 ```sh
-docker compose -f docker-compose.yml -f docker/docker-compose.loadtest.yml run --rm k6
+docker compose -f compose.microservices.yml down
 ```
 
-Run the smoke check:
+## Logs
 
-```sh
-# Linux / macOS / Git Bash
-sh scripts/observability-smoke.sh
+Services always write JSON logs to stdout. Vector push is enabled by default:
 
-# Windows PowerShell
-.\scripts\observability-smoke.ps1
+```text
+LOG_SIDECAR_ENABLED=true
+LOG_SIDECAR_URL=http://vector:8686
+LOG_FILE=
 ```
 
-The smoke check verifies:
+`LOG_FILE` is empty by default. Set it only when a service must also duplicate logs to a local file.
 
-- application `/metrics`;
-- Prometheus `subber` target;
-- Prometheus `rabbitmq` target;
-- Prometheus alert rules;
-- Grafana health;
-- Kibana health;
-- Elasticsearch 7-day ILM policy;
-- one HTTP request metric in Prometheus;
-- the matching request log in Elasticsearch.
+Vector batches accepted logs to Elasticsearch when the batch reaches `524288` bytes, or after `5s` if traffic is low. Kafka, RabbitMQ, and Logstash are not used for logging in the target architecture.
+
+More details: [Logging](logging.md).
 
 ## Metrics
 
-Main RED metrics:
+Current status:
 
-- `http_requests_total{method,route,status_code}`;
-- `http_request_duration_seconds{method,route}`;
+* `subscription-api` exposes `/metrics`;
+* `scanner-service` exposes `/metrics`;
+* `notification-service` exposes `/metrics`;
+* Prometheus scrape config lives in [deployments/docker/prometheus/prometheus.yml](../deployments/docker/prometheus/prometheus.yml).
+* Grafana provisioning lives in [deployments/docker/grafana/provisioning](../deployments/docker/grafana/provisioning).
 
-Worker metrics:
+Expected metric groups:
 
-- `emails_sent_total`;
-- `emails_failed_total`;
-- `scan_cycles_total`;
+* HTTP RED metrics for `subscription-api`;
+* scanner claim/scan/release counters;
+* notification sent/failed/retried/dead counters;
+* Kafka consumer lag and retry topic backlog, if exposed by infrastructure.
 
-Logging pipeline metrics:
+Domain counters now also include:
 
-- `log_entries_enqueued_total`;
-- `log_entries_dropped_total`;
-- `log_entries_published_total`;
-- `log_publish_errors_total`;
+* `subber_release_detected_total`;
+* `subber_notification_sent_total`;
+* `subber_notification_dead_total`.
 
-RabbitMQ metrics are scraped from the `rabbitmq` Prometheus endpoint and used to monitor queue backlog and DLQ state.
+`subscription-api` HTTP metrics and access logs cover only `/api/**` traffic. `/metrics` and `/static` are intentionally excluded so they do not pollute user-facing request panels or log searches.
 
 ## Alerts
 
-Rules live in `docker/prometheus/rules/subber-alerts.yml`.
+Prometheus evaluates a small alert set from [deployments/docker/prometheus/alerts.yml](../deployments/docker/prometheus/alerts.yml):
 
-Current local rules:
+* any service job being down for 5 minutes;
+* `subscription-api` 5xx rate above 5% for 10 minutes;
+* `subscription-api` p95 HTTP latency above 1s for 10 minutes.
+* Kafka consumer lag above 100 messages for 10 minutes;
+* outbox backlog above 20 unpublished events for 10 minutes;
+* at least one notification delivery ending in dead state within 10 minutes.
 
-- `SubberTargetDown`;
-- `SubberHighHTTP5xxRatio`;
-- `SubberHighHTTPP95Latency`;
-- `SubberEmailSendFailures`;
-- `SubberLogEntriesDropped`;
-- `SubberLogDeadLetterQueueNotEmpty`;
-- `SubberLogQueueBacklog`.
+These alerts are intentionally narrow so they page only on service availability or clear user-facing degradation. There is no alert on `/metrics`, `/static`, or low-signal internal noise.
 
-These rules are loaded by Prometheus. Alertmanager and external notification channels are intentionally not configured in this local stack.
+### Tracing
 
-## Dashboards
+Distributed tracing with OpenTelemetry means every request or event workflow gets a trace id and spans for each hop. In practice it lets you click from one slow or failed request in `subscription-api` through `scanner-service` and `notification-service` without guessing which logs belong together. We do not have it wired here yet, but that is the next sensible step after logs and metrics.
 
-Grafana provisioning:
+## Smoke Checks
 
-- datasource: `docker/grafana/provisioning/datasources/prometheus.yml`;
-- dashboard provider: `docker/grafana/provisioning/dashboards/dashboards.yml`;
-- dashboard JSON: `docker/grafana/dashboards/subber-red.json`.
+Runtime smoke should verify:
 
-Kibana dashboard import:
+* service containers start;
+* each service connects to its own PostgreSQL database;
+* services connect to Kafka;
+* Redis is available for scanner cache;
+* migrations run;
+* Vector starts and accepts logs by default.
+* Kibana is ready for Elasticsearch log inspection.
+* Prometheus is ready and sees all three service targets as `up`.
+* Grafana is ready, has the Prometheus datasource, and loads the `Subber Overview` dashboard.
 
-- saved object export: `docker/kibana/dashboards.ndjson`;
-- setup service: `kibana-setup` in `docker/docker-compose.logging.yml`.
+End-to-end smoke should verify:
+
+```text
+subscribe
+-> confirmation NotificationSendRequested
+-> confirm
+-> RepoWatchStartRequested
+-> scanner watchlist
+-> ReleaseDetected
+-> NotificationSendRequested
+-> notification-service delivery
+```
 
 ## Access Model
 
-The local Docker Compose stack publishes observability ports so the stack is easy to inspect during development. This is not a production access model.
-
-For production, keep Prometheus, Elasticsearch, RabbitMQ management, and internal metrics endpoints on private networks. Put Grafana and Kibana behind authentication, SSO, VPN, or a protected reverse proxy.
+The local Docker Compose stack publishes ports for development inspection. This is not a production access model. In production, keep Kafka, Redis, PostgreSQL, Elasticsearch, Vector, Prometheus, and internal metrics endpoints on private networks.

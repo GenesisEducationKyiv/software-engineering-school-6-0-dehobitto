@@ -1,0 +1,30 @@
+services:
+  subscription-api:
+    build:
+      context: ../..
+      dockerfile: services/subscription-api/Dockerfile
+    env_file:
+      - ../../deployments/docker/env/common.env.example
+      - .env.example
+    ports:
+      - "8080:8080"
+    depends_on:
+      kafka-topics-init:
+        condition: service_completed_successfully
+      postgres-api:
+        condition: service_healthy
+
+  subscription-api-outbox-relay:
+    build:
+      context: ../..
+      dockerfile: services/subscription-api/Dockerfile
+      args:
+        TARGET: ./services/subscription-api/cmd/outbox-relay
+    env_file:
+      - ../../deployments/docker/env/common.env.example
+      - .env.example
+    depends_on:
+      kafka-topics-init:
+        condition: service_completed_successfully
+      postgres-api:
+        condition: service_healthy

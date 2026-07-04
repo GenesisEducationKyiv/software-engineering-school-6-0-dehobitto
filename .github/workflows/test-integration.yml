@@ -4,7 +4,7 @@ on:
   push:
     branches: ["main"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "hw6-nosql-and-scaling"]
 
 jobs:
   test:
@@ -34,4 +34,7 @@ jobs:
           done
 
       - name: Test
-        run: go test -race -v -tags integration ./tests/integration/...
+        run: >
+          go test -race -v -tags integration
+          ./tests/integration/...
+          ./services/subscription-api/internal/integration/...
