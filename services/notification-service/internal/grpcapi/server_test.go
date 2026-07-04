@@ -43,12 +43,9 @@ func TestSendNotification_ValidRequestProcessesPayload(t *testing.T) {
 	processor := &fakeProcessor{}
 	srv := NewServer(processor)
 
-	resp, err := srv.SendNotification(context.Background(), validRequest())
+	_, err := srv.SendNotification(context.Background(), validRequest())
 	if err != nil {
 		t.Fatalf("SendNotification() error = %v", err)
-	}
-	if !resp.GetAccepted() {
-		t.Fatal("Accepted = false, want true")
 	}
 	if !processor.called {
 		t.Fatal("processor was not called")

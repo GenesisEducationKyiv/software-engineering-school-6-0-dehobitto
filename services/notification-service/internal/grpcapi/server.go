@@ -7,6 +7,7 @@ import (
 	"buf.build/go/protovalidate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"subber/pkg/contracts"
 	notificationv1 "subber/pkg/gen/notification/v1"
@@ -35,7 +36,7 @@ func NewServer(processor NotificationProcessor) notificationv1.NotificationServi
 	}
 }
 
-func (s *server) SendNotification(ctx context.Context, in *notificationv1.SendNotificationRequest) (*notificationv1.SendNotificationResponse, error) {
+func (s *server) SendNotification(ctx context.Context, in *notificationv1.SendNotificationRequest) (*emptypb.Empty, error) {
 	if err := s.validator.Validate(in); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid notification request: %v", err)
 	}
@@ -50,9 +51,7 @@ func (s *server) SendNotification(ctx context.Context, in *notificationv1.SendNo
 		return nil, status.Errorf(codes.Internal, "process notification: %v", err)
 	}
 
-	return &notificationv1.SendNotificationResponse{
-		Accepted: true,
-	}, nil
+	return &emptypb.Empty{}, nil
 }
 
 func buildNotification(in *notificationv1.SendNotificationRequest) contracts.NotificationSendRequestedPayload {

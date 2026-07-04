@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"subber/pkg/contracts"
 	notificationv1 "subber/pkg/gen/notification/v1"
@@ -16,7 +17,7 @@ import (
 const defaultNotificationGRPCTimeout = 5 * time.Second
 
 type notificationGRPCClient interface {
-	SendNotification(ctx context.Context, in *notificationv1.SendNotificationRequest, opts ...grpc.CallOption) (*notificationv1.SendNotificationResponse, error)
+	SendNotification(ctx context.Context, in *notificationv1.SendNotificationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type GrpcNotificationPublisher struct {
@@ -66,7 +67,7 @@ func (p *GrpcNotificationPublisher) send(ctx context.Context, payload contracts.
 	callCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	resp, err := p.client.SendNotification(callCtx, &notificationv1.SendNotificationRequest{
+	_, err := p.client.SendNotification(callCtx, &notificationv1.SendNotificationRequest{
 		NotificationId: payload.NotificationID,
 		IdempotencyKey: payload.IdempotencyKey,
 		RecipientEmail: payload.RecipientEmail,
@@ -78,9 +79,6 @@ func (p *GrpcNotificationPublisher) send(ctx context.Context, payload contracts.
 	})
 	if err != nil {
 		return fmt.Errorf("send notification over grpc: %w", err)
-	}
-	if !resp.GetAccepted() {
-		return fmt.Errorf("send notification over grpc: notification was not accepted")
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	notificationv1 "subber/pkg/gen/notification/v1"
 	"subber/pkg/requestid"
@@ -19,10 +20,10 @@ import (
 type fakeNotificationGRPCClient struct {
 	req  *notificationv1.SendNotificationRequest
 	err  error
-	resp *notificationv1.SendNotificationResponse
+	resp *emptypb.Empty
 }
 
-func (c *fakeNotificationGRPCClient) SendNotification(_ context.Context, in *notificationv1.SendNotificationRequest, _ ...grpc.CallOption) (*notificationv1.SendNotificationResponse, error) {
+func (c *fakeNotificationGRPCClient) SendNotification(_ context.Context, in *notificationv1.SendNotificationRequest, _ ...grpc.CallOption) (*emptypb.Empty, error) {
 	c.req = in
 	if c.err != nil {
 		return nil, c.err
@@ -30,7 +31,7 @@ func (c *fakeNotificationGRPCClient) SendNotification(_ context.Context, in *not
 	if c.resp != nil {
 		return c.resp, nil
 	}
-	return &notificationv1.SendNotificationResponse{Accepted: true}, nil
+	return &emptypb.Empty{}, nil
 }
 
 func TestGrpcNotificationPublisher_SendConfirmation(t *testing.T) {
@@ -93,17 +94,6 @@ func TestGrpcNotificationPublisher_ReturnsClientErrors(t *testing.T) {
 	err := publisher.SendConfirmation(context.Background(), "user@example.com", "owner/repo", "token")
 	if status.Code(err) != codes.Unavailable {
 		t.Fatalf("status code = %v, want %v; err = %v", status.Code(err), codes.Unavailable, err)
-	}
-}
-
-func TestGrpcNotificationPublisher_ReturnsNotAccepted(t *testing.T) {
-	publisher := newGrpcNotificationPublisher(&fakeNotificationGRPCClient{
-		resp: &notificationv1.SendNotificationResponse{Accepted: false},
-	}, "http://localhost:8080", time.Second)
-
-	err := publisher.SendConfirmation(context.Background(), "user@example.com", "owner/repo", "token")
-	if err == nil || !strings.Contains(err.Error(), "not accepted") {
-		t.Fatalf("SendConfirmation() error = %v, want not accepted", err)
 	}
 }
 

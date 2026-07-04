@@ -11,6 +11,7 @@ import (
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -26,7 +27,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type NotificationServiceClient interface {
-	SendNotification(ctx context.Context, in *SendNotificationRequest, opts ...grpc.CallOption) (*SendNotificationResponse, error)
+	SendNotification(ctx context.Context, in *SendNotificationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type notificationServiceClient struct {
@@ -37,9 +38,9 @@ func NewNotificationServiceClient(cc grpc.ClientConnInterface) NotificationServi
 	return &notificationServiceClient{cc}
 }
 
-func (c *notificationServiceClient) SendNotification(ctx context.Context, in *SendNotificationRequest, opts ...grpc.CallOption) (*SendNotificationResponse, error) {
+func (c *notificationServiceClient) SendNotification(ctx context.Context, in *SendNotificationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SendNotificationResponse)
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, NotificationService_SendNotification_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -51,7 +52,7 @@ func (c *notificationServiceClient) SendNotification(ctx context.Context, in *Se
 // All implementations must embed UnimplementedNotificationServiceServer
 // for forward compatibility.
 type NotificationServiceServer interface {
-	SendNotification(context.Context, *SendNotificationRequest) (*SendNotificationResponse, error)
+	SendNotification(context.Context, *SendNotificationRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedNotificationServiceServer()
 }
 
@@ -62,7 +63,7 @@ type NotificationServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedNotificationServiceServer struct{}
 
-func (UnimplementedNotificationServiceServer) SendNotification(context.Context, *SendNotificationRequest) (*SendNotificationResponse, error) {
+func (UnimplementedNotificationServiceServer) SendNotification(context.Context, *SendNotificationRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method SendNotification not implemented")
 }
 func (UnimplementedNotificationServiceServer) mustEmbedUnimplementedNotificationServiceServer() {}

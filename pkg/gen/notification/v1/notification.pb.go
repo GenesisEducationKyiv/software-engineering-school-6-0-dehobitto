@@ -10,6 +10,7 @@ import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -122,55 +123,11 @@ func (x *SendNotificationRequest) GetCorrelationId() string {
 	return ""
 }
 
-type SendNotificationResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Accepted      bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SendNotificationResponse) Reset() {
-	*x = SendNotificationResponse{}
-	mi := &file_notification_v1_notification_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SendNotificationResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SendNotificationResponse) ProtoMessage() {}
-
-func (x *SendNotificationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_notification_v1_notification_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SendNotificationResponse.ProtoReflect.Descriptor instead.
-func (*SendNotificationResponse) Descriptor() ([]byte, []int) {
-	return file_notification_v1_notification_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *SendNotificationResponse) GetAccepted() bool {
-	if x != nil {
-		return x.Accepted
-	}
-	return false
-}
-
 var File_notification_v1_notification_proto protoreflect.FileDescriptor
 
 const file_notification_v1_notification_proto_rawDesc = "" +
 	"\n" +
-	"\"notification/v1/notification.proto\x12\x0fnotification.v1\x1a\x1bbuf/validate/validate.proto\"\xd0\x02\n" +
+	"\"notification/v1/notification.proto\x12\x0fnotification.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xd0\x02\n" +
 	"\x17SendNotificationRequest\x120\n" +
 	"\x0fnotification_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0enotificationId\x120\n" +
 	"\x0fidempotency_key\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0eidempotencyKey\x120\n" +
@@ -180,11 +137,9 @@ const file_notification_v1_notification_proto_rawDesc = "" +
 	"\x04repo\x18\x05 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x04repo\x12\x10\n" +
 	"\x03tag\x18\x06 \x01(\tR\x03tag\x12!\n" +
 	"\amessage\x18\a \x01(\tB\a\xbaH\x04r\x02\x10\x01R\amessage\x12%\n" +
-	"\x0ecorrelation_id\x18\b \x01(\tR\rcorrelationId\"6\n" +
-	"\x18SendNotificationResponse\x12\x1a\n" +
-	"\baccepted\x18\x01 \x01(\bR\baccepted2~\n" +
-	"\x13NotificationService\x12g\n" +
-	"\x10SendNotification\x12(.notification.v1.SendNotificationRequest\x1a).notification.v1.SendNotificationResponseB/Z-subber/pkg/gen/notification/v1;notificationv1b\x06proto3"
+	"\x0ecorrelation_id\x18\b \x01(\tR\rcorrelationId2k\n" +
+	"\x13NotificationService\x12T\n" +
+	"\x10SendNotification\x12(.notification.v1.SendNotificationRequest\x1a\x16.google.protobuf.EmptyB/Z-subber/pkg/gen/notification/v1;notificationv1b\x06proto3"
 
 var (
 	file_notification_v1_notification_proto_rawDescOnce sync.Once
@@ -198,14 +153,14 @@ func file_notification_v1_notification_proto_rawDescGZIP() []byte {
 	return file_notification_v1_notification_proto_rawDescData
 }
 
-var file_notification_v1_notification_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_notification_v1_notification_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_notification_v1_notification_proto_goTypes = []any{
-	(*SendNotificationRequest)(nil),  // 0: notification.v1.SendNotificationRequest
-	(*SendNotificationResponse)(nil), // 1: notification.v1.SendNotificationResponse
+	(*SendNotificationRequest)(nil), // 0: notification.v1.SendNotificationRequest
+	(*emptypb.Empty)(nil),           // 1: google.protobuf.Empty
 }
 var file_notification_v1_notification_proto_depIdxs = []int32{
 	0, // 0: notification.v1.NotificationService.SendNotification:input_type -> notification.v1.SendNotificationRequest
-	1, // 1: notification.v1.NotificationService.SendNotification:output_type -> notification.v1.SendNotificationResponse
+	1, // 1: notification.v1.NotificationService.SendNotification:output_type -> google.protobuf.Empty
 	1, // [1:2] is the sub-list for method output_type
 	0, // [0:1] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -224,7 +179,7 @@ func file_notification_v1_notification_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_notification_v1_notification_proto_rawDesc), len(file_notification_v1_notification_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
