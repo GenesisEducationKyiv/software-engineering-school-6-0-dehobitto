@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package notification.v1;
 
+import "buf/validate/validate.proto";
+
 option go_package = "subber/pkg/gen/notification/v1;notificationv1";
 
 service NotificationService {
@@ -9,13 +11,13 @@ service NotificationService {
 }
 
 message SendNotificationRequest {
-  string notification_id  = 1;
-  string idempotency_key  = 2;
-  string recipient_email  = 3;
-  string email_hash       = 4;
-  string repo             = 5;
+  string notification_id  = 1 [(buf.validate.field).string.min_len = 1];
+  string idempotency_key  = 2 [(buf.validate.field).string.min_len = 1];
+  string recipient_email  = 3 [(buf.validate.field).string.min_len = 1];
+  string email_hash       = 4 [(buf.validate.field).string.min_len = 1];
+  string repo             = 5 [(buf.validate.field).string.min_len = 1];
   string tag              = 6;
-  string message          = 7;
+  string message          = 7 [(buf.validate.field).string.min_len = 1];
   string correlation_id   = 8;
 }
 

@@ -7,6 +7,7 @@
 package notificationv1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -169,16 +170,16 @@ var File_notification_v1_notification_proto protoreflect.FileDescriptor
 
 const file_notification_v1_notification_proto_rawDesc = "" +
 	"\n" +
-	"\"notification/v1/notification.proto\x12\x0fnotification.v1\"\x9a\x02\n" +
-	"\x17SendNotificationRequest\x12'\n" +
-	"\x0fnotification_id\x18\x01 \x01(\tR\x0enotificationId\x12'\n" +
-	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\x12'\n" +
-	"\x0frecipient_email\x18\x03 \x01(\tR\x0erecipientEmail\x12\x1d\n" +
+	"\"notification/v1/notification.proto\x12\x0fnotification.v1\x1a\x1bbuf/validate/validate.proto\"\xd0\x02\n" +
+	"\x17SendNotificationRequest\x120\n" +
+	"\x0fnotification_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0enotificationId\x120\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0eidempotencyKey\x120\n" +
+	"\x0frecipient_email\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0erecipientEmail\x12&\n" +
 	"\n" +
-	"email_hash\x18\x04 \x01(\tR\temailHash\x12\x12\n" +
-	"\x04repo\x18\x05 \x01(\tR\x04repo\x12\x10\n" +
-	"\x03tag\x18\x06 \x01(\tR\x03tag\x12\x18\n" +
-	"\amessage\x18\a \x01(\tR\amessage\x12%\n" +
+	"email_hash\x18\x04 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\temailHash\x12\x1b\n" +
+	"\x04repo\x18\x05 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x04repo\x12\x10\n" +
+	"\x03tag\x18\x06 \x01(\tR\x03tag\x12!\n" +
+	"\amessage\x18\a \x01(\tB\a\xbaH\x04r\x02\x10\x01R\amessage\x12%\n" +
 	"\x0ecorrelation_id\x18\b \x01(\tR\rcorrelationId\"6\n" +
 	"\x18SendNotificationResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted2~\n" +

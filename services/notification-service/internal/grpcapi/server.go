@@ -2,7 +2,9 @@ package grpcapi
 
 import (
 	"context"
+	"fmt"
 
+	"buf.build/go/protovalidate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -18,15 +20,24 @@ type NotificationProcessor interface {
 type server struct {
 	notificationv1.UnimplementedNotificationServiceServer
 	processor NotificationProcessor
+	validator protovalidate.Validator
 }
 
 func NewServer(processor NotificationProcessor) notificationv1.NotificationServiceServer {
-	return &server{processor: processor}
+	validator, err := protovalidate.New()
+	if err != nil {
+		panic(fmt.Sprintf("create notification validator: %v", err))
+	}
+
+	return &server{
+		processor: processor,
+		validator: validator,
+	}
 }
 
 func (s *server) SendNotification(ctx context.Context, in *notificationv1.SendNotificationRequest) (*notificationv1.SendNotificationResponse, error) {
-	if err := validateNotification(in); err != nil {
-		return nil, err
+	if err := s.validator.Validate(in); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid notification request: %v", err)
 	}
 
 	if in.GetCorrelationId() != "" {
@@ -42,28 +53,6 @@ func (s *server) SendNotification(ctx context.Context, in *notificationv1.SendNo
 	return &notificationv1.SendNotificationResponse{
 		Accepted: true,
 	}, nil
-}
-
-func validateNotification(in *notificationv1.SendNotificationRequest) error {
-	if in.GetNotificationId() == "" {
-		return status.Error(codes.InvalidArgument, "notification_id is required")
-	}
-	if in.GetIdempotencyKey() == "" {
-		return status.Error(codes.InvalidArgument, "idempotency_key is required")
-	}
-	if in.GetRecipientEmail() == "" {
-		return status.Error(codes.InvalidArgument, "recipient_email is required")
-	}
-	if in.GetEmailHash() == "" {
-		return status.Error(codes.InvalidArgument, "email_hash is required")
-	}
-	if in.GetRepo() == "" {
-		return status.Error(codes.InvalidArgument, "repo is required")
-	}
-	if in.GetMessage() == "" {
-		return status.Error(codes.InvalidArgument, "message is required")
-	}
-	return nil
 }
 
 func buildNotification(in *notificationv1.SendNotificationRequest) contracts.NotificationSendRequestedPayload {
