@@ -8,6 +8,7 @@ import (
 
 	"subber/pkg/contracts"
 	notificationv1 "subber/pkg/gen/notification/v1"
+	"subber/pkg/requestid"
 )
 
 type NotificationProcessor interface {
@@ -26,6 +27,10 @@ func NewServer(processor NotificationProcessor) notificationv1.NotificationServi
 func (s *server) SendNotification(ctx context.Context, in *notificationv1.SendNotificationRequest) (*notificationv1.SendNotificationResponse, error) {
 	if err := validateNotification(in); err != nil {
 		return nil, err
+	}
+
+	if in.GetCorrelationId() != "" {
+		ctx = requestid.WithContext(ctx, in.GetCorrelationId())
 	}
 
 	payload := buildNotification(in)

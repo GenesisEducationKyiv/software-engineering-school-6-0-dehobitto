@@ -10,16 +10,19 @@ import (
 
 	"subber/pkg/contracts"
 	notificationv1 "subber/pkg/gen/notification/v1"
+	"subber/pkg/requestid"
 )
 
 type fakeProcessor struct {
 	payload contracts.NotificationSendRequestedPayload
 	err     error
 	called  bool
+	ctx     context.Context
 }
 
-func (p *fakeProcessor) Process(_ context.Context, payload contracts.NotificationSendRequestedPayload) error {
+func (p *fakeProcessor) Process(ctx context.Context, payload contracts.NotificationSendRequestedPayload) error {
 	p.called = true
+	p.ctx = ctx
 	p.payload = payload
 	return p.err
 }
@@ -57,6 +60,9 @@ func TestSendNotification_ValidRequestProcessesPayload(t *testing.T) {
 		processor.payload.Repo != "owner/repo" ||
 		processor.payload.Message != "Please confirm" {
 		t.Fatalf("unexpected payload: %#v", processor.payload)
+	}
+	if correlationID, ok := requestid.FromContext(processor.ctx); !ok || correlationID != "correlation-1" {
+		t.Fatalf("correlation id from context = %q, %v", correlationID, ok)
 	}
 }
 
