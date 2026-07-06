@@ -1,0 +1,100 @@
+%% Subber implemented architecture.
+%% Line convention: solid = synchronous call, dashed = asynchronous Kafka flow.
+flowchart LR
+    user("Subscriber / API client<br/>[Browser / HTTP client]")
+    github("GitHub API<br/>[External REST API]")
+    smtp("SMTP / Mailpit<br/>[Email transport]")
+
+    subgraph subber["Subber system"]
+        direction LR
+
+        subgraph apiSvc["subscription-api"]
+            direction TB
+            api("HTTP API + static UI<br/>[Go / Gin]")
+            releaseConsumer("Release consumer<br/>[Go Kafka consumer]")
+            saga("Watchlist saga orchestrator<br/>[Go worker]")
+            apiRelay("Outbox relay<br/>[Go worker]")
+            apiDb("API database<br/>[PostgreSQL]")
+
+            api --> apiDb
+            releaseConsumer --> apiDb
+            saga --> apiDb
+            apiDb --> apiRelay
+        end
+
+        kafka("Kafka message bus<br/>[Apache Kafka]<br/><br/>subber.watchlist.saga.requests<br/>subber.watchlist.saga.commands<br/>subber.watchlist.saga.events<br/>subber.watchlist.commands.dlq<br/>subber.release.events<br/>subber.notification.commands<br/>subber.notification.retry.1m<br/>subber.notification.retry.10m<br/>subber.notification.dlq")
+
+        subgraph scannerSvc["scanner-service"]
+            direction TB
+            watchConsumer("Watchlist consumer<br/>[Go Kafka consumer]")
+            scanner("Release scanner worker<br/>[Go worker]")
+            scannerRelay("Outbox relay<br/>[Go worker]")
+            scannerDb("Scanner database<br/>[PostgreSQL]")
+            redis("GitHub cache<br/>[Redis]")
+
+            watchConsumer --> scannerDb
+            scanner --> scannerDb
+            scanner --> redis
+            scannerDb --> scannerRelay
+        end
+
+        subgraph notifierSvc["notification-service"]
+            direction TB
+            notifyConsumer("Notification consumer<br/>[Go Kafka consumer]")
+            delivery("Delivery worker<br/>[Go worker]")
+            retry("Retry scheduler<br/>[Go worker]")
+            notifierRelay("Outbox relay<br/>[Go worker]")
+            notifierDb("Notification database<br/>[PostgreSQL]")
+
+            notifyConsumer --> delivery
+            delivery --> notifierDb
+            delivery --> retry
+            retry --> notifierDb
+            notifierDb --> notifierRelay
+        end
+    end
+
+    subgraph ops["Observability / runtime"]
+        direction TB
+        telemetry("Metrics + logs<br/>[Prometheus, kafka-exporter, Vector, Elasticsearch, Kibana, Grafana]<br/><br/>Rule: all microservices expose metrics for Prometheus and ship structured JSON logs to Vector.")
+    end
+
+    compose("Docker Compose<br/>[Local runtime]")
+
+    legend("Legend<br/>[Diagram convention]<br/><br/>Solid line = synchronous call<br/>Dashed line = asynchronous Kafka flow")
+
+    user -->|"uses web UI / REST API"| api
+    api -->|"validates repository"| github
+    scanner -->|"polls releases"| github
+    delivery -->|"sends email"| smtp
+    apiRelay -. "publishes domain events" .-> kafka
+    saga -. "watch saga" .-> kafka
+    kafka -. "watch commands / acks" .-> saga
+    kafka -. "watch commands" .-> watchConsumer
+    watchConsumer -. "watch results" .-> kafka
+    scannerRelay -. "release events" .-> kafka
+    kafka -. "release events" .-> releaseConsumer
+    apiRelay -. "notification commands" .-> kafka
+    kafka -. "notification work" .-> notifyConsumer
+    notifierRelay -. "retries / DLQ" .-> kafka
+
+    compose -->|"starts local stack"| subber
+    subber -. "metrics and logs" .-> telemetry
+
+    classDef actor fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
+    classDef external fill:#F8FAFC,stroke:#64748B,color:#0F172A
+    classDef service fill:#EFF6FF,stroke:#1D4ED8,color:#1E3A8A
+    classDef component fill:#BFDBFE,stroke:#2563EB,color:#1E3A8A
+    classDef state fill:#ECFDF5,stroke:#059669,color:#064E3B
+    classDef bus fill:#FFEDD5,stroke:#EA580C,color:#7C2D12
+    classDef ops fill:#F5F3FF,stroke:#7C3AED,color:#4C1D95
+    classDef legend fill:#FFFFFF,stroke:#94A3B8,color:#334155
+
+    class user actor
+    class github,smtp external
+    class apiSvc,scannerSvc,notifierSvc service
+    class api,releaseConsumer,saga,apiRelay,watchConsumer,scanner,scannerRelay,notifyConsumer,delivery,retry,notifierRelay component
+    class apiDb,scannerDb,redis,notifierDb state
+    class kafka bus
+    class compose,telemetry ops
+    class legend legend
