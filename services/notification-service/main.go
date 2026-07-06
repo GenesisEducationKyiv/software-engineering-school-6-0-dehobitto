@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -72,6 +73,25 @@ func run() error {
 	group.Go(func() error {
 		return metrics.Serve(ctx, ":"+cfg.MetricsPort)
 	})
+	if cfg.ServerPort != "" {
+		notificationServer := &http.Server{
+			Addr:              ":" + cfg.ServerPort,
+			Handler:           delivery.NewHTTPHandler(service, log.WithField("component", "http")),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		group.Go(func() error {
+			if err := notificationServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("notification http server: %w", err)
+			}
+			return nil
+		})
+		group.Go(func() error {
+			<-ctx.Done()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			return notificationServer.Shutdown(shutdownCtx)
+		})
+	}
 	group.Go(func() error {
 		return retryScheduler.Start(ctx)
 	})

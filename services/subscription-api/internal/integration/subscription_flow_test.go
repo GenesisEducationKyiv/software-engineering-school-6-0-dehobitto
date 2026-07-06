@@ -3,20 +3,15 @@
 package integration
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
-
 	"subber/pkg/contracts"
-	"subber/services/subscription-api/internal/subscription"
 )
 
-func TestSubscribe_SuccessPersistsUnconfirmedAndWritesConfirmationOutbox(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{tag: "v1.0.0"})
+func TestSubscribe_SuccessPersistsUnconfirmedAndSendsConfirmationRequest(t *testing.T) {
+	env := newTestEnv(t, newGitHubMock(t, nil, "v1.0.0", nil), http.StatusAccepted)
 
 	res := env.subscribe(t, "user@example.com", "owner/repo", "test-key")
 
@@ -29,38 +24,36 @@ func TestSubscribe_SuccessPersistsUnconfirmedAndWritesConfirmationOutbox(t *test
 	if isConfirmed(t, "user@example.com", "owner/repo") {
 		t.Fatal("subscription must start unconfirmed")
 	}
-	if notificationCommandCount(t) != 1 {
-		t.Fatalf("notification commands = %d, want 1", notificationCommandCount(t))
+	if env.confirmationRequestCount() != 1 {
+		t.Fatalf("confirmation requests = %d, want 1", env.confirmationRequestCount())
+	}
+	request := env.latestConfirmationRequest(t)
+	if request.Email != "user@example.com" || request.Repo != "owner/repo" {
+		t.Fatalf("confirmation request = %#v", request)
+	}
+	if want := "http://localhost:8080/api/confirm/" + tokenForSubscription(t, "user@example.com", "owner/repo"); request.ConfirmURL != want {
+		t.Fatalf("confirm url = %q, want %q", request.ConfirmURL, want)
 	}
 }
 
-func TestSaveSubscriptionWithConfirmation_RollsBackWhenOutboxFails(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{})
-	repo := subscription.NewRepository(env.pool)
+func TestSubscribe_RollsBackWhenConfirmationFails(t *testing.T) {
+	env := newTestEnv(t, newGitHubMock(t, nil, "", nil), http.StatusServiceUnavailable)
 
-	err := repo.SaveSubscriptionWithConfirmation(
-		context.Background(),
-		subscription.Subscription{
-			Email:       "rollback@example.com",
-			Repo:        "owner/repo",
-			LastSeenTag: "v1.0.0",
-			Token:       "00000000-0000-0000-0000-000000000001",
-		},
-		failingConfirmationPublisher{},
-	)
-	if err == nil {
-		t.Fatal("expected outbox error, got nil")
+	res := env.subscribe(t, "rollback@example.com", "owner/repo", "test-key")
+
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503, body: %s", res.Code, res.Body.String())
 	}
 	if subscriptionExists(t, "rollback@example.com", "owner/repo") {
-		t.Fatal("subscription must roll back when confirmation outbox insert fails")
+		t.Fatal("subscription must roll back when confirmation request fails")
 	}
-	if notificationCommandCount(t) != 0 {
-		t.Fatalf("notification commands = %d, want 0", notificationCommandCount(t))
+	if env.confirmationRequestCount() != 1 {
+		t.Fatalf("confirmation requests = %d, want 1", env.confirmationRequestCount())
 	}
 }
 
 func TestSubscribe_DuplicateAndRepoValidation(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{})
+	env := newTestEnv(t, newGitHubMock(t, nil, "", nil), http.StatusAccepted)
 
 	env.subscribe(t, "user@example.com", "owner/repo", "test-key")
 	res := env.subscribe(t, "user@example.com", "owner/repo", "test-key")
@@ -68,7 +61,7 @@ func TestSubscribe_DuplicateAndRepoValidation(t *testing.T) {
 		t.Fatalf("duplicate status = %d, want 409", res.Code)
 	}
 
-	env = newTestEnv(t, gitHubFake{existsErr: githubError(http.StatusNotFound)})
+	env = newTestEnv(t, newGitHubMock(t, githubError(http.StatusNotFound), "", nil), http.StatusAccepted)
 	res = env.subscribe(t, "user@example.com", "owner/missing", "test-key")
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("missing repo status = %d, want 404", res.Code)
@@ -78,14 +71,8 @@ func TestSubscribe_DuplicateAndRepoValidation(t *testing.T) {
 	}
 }
 
-type failingConfirmationPublisher struct{}
-
-func (failingConfirmationPublisher) PublishConfirmationTx(context.Context, pgx.Tx, string, string, string) error {
-	return errors.New("outbox down")
-}
-
 func TestSubscribe_WithoutAPIKeyReturnsUnauthorized(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{})
+	env := newTestEnv(t, newGitHubMock(t, nil, "", nil), http.StatusAccepted)
 
 	res := env.subscribe(t, "user@example.com", "owner/repo", "")
 
@@ -94,8 +81,8 @@ func TestSubscribe_WithoutAPIKeyReturnsUnauthorized(t *testing.T) {
 	}
 }
 
-func TestConfirm_FirstSubscriberWritesRepoWatchStart(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{})
+func TestConfirm_FirstSubscriberWritesRepoWatchSagaStart(t *testing.T) {
+	env := newTestEnv(t, newGitHubMock(t, nil, "", nil), http.StatusAccepted)
 	env.subscribe(t, "user@example.com", "owner/repo", "test-key")
 	token := tokenForSubscription(t, "user@example.com", "owner/repo")
 
@@ -107,13 +94,13 @@ func TestConfirm_FirstSubscriberWritesRepoWatchStart(t *testing.T) {
 	if !isConfirmed(t, "user@example.com", "owner/repo") {
 		t.Fatal("subscription must be confirmed")
 	}
-	if outboxCount(t, contracts.EventRepoWatchStart, contracts.TopicWatchlistEvents) != 1 {
-		t.Fatalf("repo watch start events = %d, want 1", outboxCount(t, contracts.EventRepoWatchStart, contracts.TopicWatchlistEvents))
+	if outboxCount(t, contracts.EventRepoWatchSagaRequested, contracts.TopicWatchlistSagaRequests) != 1 {
+		t.Fatalf("repo watch saga requests = %d, want 1", outboxCount(t, contracts.EventRepoWatchSagaRequested, contracts.TopicWatchlistSagaRequests))
 	}
 }
 
-func TestConfirm_SecondSubscriberDoesNotWriteDuplicateRepoWatchStart(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{})
+func TestConfirm_SecondSubscriberDoesNotWriteDuplicateRepoWatchSagaStart(t *testing.T) {
+	env := newTestEnv(t, newGitHubMock(t, nil, "", nil), http.StatusAccepted)
 	env.subscribe(t, "a@example.com", "owner/repo", "test-key")
 	env.confirm(t, tokenForSubscription(t, "a@example.com", "owner/repo"))
 	env.subscribe(t, "b@example.com", "owner/repo", "test-key")
@@ -123,13 +110,13 @@ func TestConfirm_SecondSubscriberDoesNotWriteDuplicateRepoWatchStart(t *testing.
 	if res.Code != http.StatusOK {
 		t.Fatalf("confirm status = %d, want 200", res.Code)
 	}
-	if outboxCount(t, contracts.EventRepoWatchStart, contracts.TopicWatchlistEvents) != 1 {
-		t.Fatalf("repo watch start events = %d, want only first subscriber event", outboxCount(t, contracts.EventRepoWatchStart, contracts.TopicWatchlistEvents))
+	if outboxCount(t, contracts.EventRepoWatchSagaRequested, contracts.TopicWatchlistSagaRequests) != 1 {
+		t.Fatalf("repo watch saga requests = %d, want only first subscriber event", outboxCount(t, contracts.EventRepoWatchSagaRequested, contracts.TopicWatchlistSagaRequests))
 	}
 }
 
 func TestConfirm_UnknownTokenReturns404(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{})
+	env := newTestEnv(t, newGitHubMock(t, nil, "", nil), http.StatusAccepted)
 
 	res := env.confirm(t, "00000000-0000-0000-0000-000000000000")
 
@@ -138,8 +125,8 @@ func TestConfirm_UnknownTokenReturns404(t *testing.T) {
 	}
 }
 
-func TestUnsubscribe_LastSubscriberWritesRepoWatchStop(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{})
+func TestUnsubscribe_LastSubscriberWritesRepoWatchSagaStop(t *testing.T) {
+	env := newTestEnv(t, newGitHubMock(t, nil, "", nil), http.StatusAccepted)
 	env.subscribe(t, "user@example.com", "owner/repo", "test-key")
 	token := tokenForSubscription(t, "user@example.com", "owner/repo")
 	env.confirm(t, token)
@@ -152,13 +139,13 @@ func TestUnsubscribe_LastSubscriberWritesRepoWatchStop(t *testing.T) {
 	if subscriptionExists(t, "user@example.com", "owner/repo") {
 		t.Fatal("subscription must be deleted")
 	}
-	if outboxCount(t, contracts.EventRepoWatchStop, contracts.TopicWatchlistEvents) != 1 {
-		t.Fatalf("repo watch stop events = %d, want 1", outboxCount(t, contracts.EventRepoWatchStop, contracts.TopicWatchlistEvents))
+	if outboxCount(t, contracts.EventRepoWatchSagaRequested, contracts.TopicWatchlistSagaRequests) != 2 {
+		t.Fatalf("repo watch saga requests = %d, want 2 start+stop", outboxCount(t, contracts.EventRepoWatchSagaRequested, contracts.TopicWatchlistSagaRequests))
 	}
 }
 
 func TestUnsubscribe_NotLastSubscriberDoesNotWriteRepoWatchStop(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{})
+	env := newTestEnv(t, newGitHubMock(t, nil, "", nil), http.StatusAccepted)
 	env.subscribe(t, "a@example.com", "owner/repo", "test-key")
 	tokenA := tokenForSubscription(t, "a@example.com", "owner/repo")
 	env.confirm(t, tokenA)
@@ -171,13 +158,13 @@ func TestUnsubscribe_NotLastSubscriberDoesNotWriteRepoWatchStop(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("unsubscribe status = %d, want 200", res.Code)
 	}
-	if outboxCount(t, contracts.EventRepoWatchStop, contracts.TopicWatchlistEvents) != 0 {
-		t.Fatalf("repo watch stop events = %d, want 0 while another subscriber remains", outboxCount(t, contracts.EventRepoWatchStop, contracts.TopicWatchlistEvents))
+	if outboxCount(t, contracts.EventRepoWatchSagaRequested, contracts.TopicWatchlistSagaRequests) != 1 {
+		t.Fatalf("repo watch saga requests = %d, want only initial start while another subscriber remains", outboxCount(t, contracts.EventRepoWatchSagaRequested, contracts.TopicWatchlistSagaRequests))
 	}
 }
 
 func TestGetSubscriptions_ReturnsConfirmedOnlyAndRequiresAPIKey(t *testing.T) {
-	env := newTestEnv(t, gitHubFake{})
+	env := newTestEnv(t, newGitHubMock(t, nil, "", nil), http.StatusAccepted)
 	env.subscribe(t, "user@example.com", "owner/repo1", "test-key")
 	env.confirm(t, tokenForSubscription(t, "user@example.com", "owner/repo1"))
 	env.subscribe(t, "user@example.com", "owner/repo2", "test-key")

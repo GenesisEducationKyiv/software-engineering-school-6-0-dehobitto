@@ -43,8 +43,10 @@ Current Kafka topics:
 
 | Topic | Purpose |
 | --- | --- |
-| `subber.watchlist.events` | subscription API tells scanner to start/stop watching a repository |
-| `subber.watchlist.dlq` | malformed or unsupported watchlist events |
+| `subber.watchlist.saga.requests` | subscription API asks the orchestrator to start/stop a repo watch saga |
+| `subber.watchlist.saga.commands` | saga orchestrator commands scanner to start/stop watching a repository |
+| `subber.watchlist.saga.events` | scanner reports watchlist command success or failure |
+| `subber.watchlist.commands.dlq` | malformed or unsupported scanner watchlist commands |
 | `subber.release.events` | scanner publishes detected releases |
 | `subber.notification.commands` | subscription API requests email delivery |
 | `subber.notification.retry.1m` | first delayed notification retry |

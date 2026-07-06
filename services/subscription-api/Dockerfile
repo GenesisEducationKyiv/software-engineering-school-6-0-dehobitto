@@ -1,6 +1,6 @@
 FROM golang:1.26.2-alpine AS builder
 
-ARG TARGET=./services/subscription-api
+ARG TARGET=.
 
 WORKDIR /app
 
@@ -16,6 +16,8 @@ RUN go work sync \
     done
 
 COPY . .
+
+WORKDIR /app/services/subscription-api
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/service ${TARGET}
 

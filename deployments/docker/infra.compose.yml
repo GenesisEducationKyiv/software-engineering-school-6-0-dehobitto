@@ -31,8 +31,10 @@ services:
       - /bin/sh
       - -ec
       - |
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.watchlist.events --partitions 3 --replication-factor 1 --config retention.ms=604800000
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.watchlist.dlq --partitions 3 --replication-factor 1 --config retention.ms=1209600000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.watchlist.saga.requests --partitions 3 --replication-factor 1 --config retention.ms=604800000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.watchlist.saga.commands --partitions 3 --replication-factor 1 --config retention.ms=604800000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.watchlist.saga.events --partitions 3 --replication-factor 1 --config retention.ms=604800000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.watchlist.commands.dlq --partitions 3 --replication-factor 1 --config retention.ms=1209600000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.release.events --partitions 3 --replication-factor 1 --config retention.ms=604800000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.notification.commands --partitions 6 --replication-factor 1 --config retention.ms=604800000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic subber.notification.retry.1m --partitions 6 --replication-factor 1 --config retention.ms=604800000

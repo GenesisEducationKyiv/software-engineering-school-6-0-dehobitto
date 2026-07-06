@@ -4,134 +4,209 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
+
 	"subber/pkg/contracts"
+	"subber/pkg/kafka"
 )
 
-type fakeStore struct {
-	claimed      []WatchedRepo
-	claimLimit   int
-	nextScanIn   time.Duration
-	startedRepo  string
-	stoppedRepo  string
-	detectedRepo string
-	detectedTag  string
-	published    bool
-	err          error
+type MockReleaseProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockReleaseProviderMockRecorder
 }
 
-func (s *fakeStore) ClaimDue(_ context.Context, limit int, nextScanIn time.Duration) ([]WatchedRepo, error) {
-	s.claimLimit = limit
-	s.nextScanIn = nextScanIn
-	return s.claimed, s.err
+type MockReleaseProviderMockRecorder struct {
+	mock *MockReleaseProvider
 }
 
-func (s *fakeStore) StartWatching(_ context.Context, repo string) error {
-	s.startedRepo = repo
-	return s.err
+func NewMockReleaseProvider(ctrl *gomock.Controller) *MockReleaseProvider {
+	mock := &MockReleaseProvider{ctrl: ctrl}
+	mock.recorder = &MockReleaseProviderMockRecorder{mock}
+	return mock
 }
 
-func (s *fakeStore) StopWatching(_ context.Context, repo string) error {
-	s.stoppedRepo = repo
-	return s.err
+func (m *MockReleaseProvider) EXPECT() *MockReleaseProviderMockRecorder {
+	return m.recorder
 }
 
-func (s *fakeStore) MarkReleaseDetected(_ context.Context, repo, tag, _ string) (bool, error) {
-	s.detectedRepo = repo
-	s.detectedTag = tag
-	return s.published, s.err
+func (m *MockReleaseProvider) GetLatestTag(ctx context.Context, repo string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestTag", ctx, repo)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
-type fakeReleaseProvider struct {
-	tag string
-	err error
+func (mr *MockReleaseProviderMockRecorder) GetLatestTag(ctx, repo interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestTag", reflect.TypeOf((*MockReleaseProvider)(nil).GetLatestTag), ctx, repo)
 }
 
-func (p fakeReleaseProvider) GetLatestTag(context.Context, string) (string, error) {
-	return p.tag, p.err
+type MockStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockStoreMockRecorder
 }
 
-func TestHandleWatchlistEvent_StartAndStop(t *testing.T) {
-	store := &fakeStore{}
-	svc := NewService(store, fakeReleaseProvider{}, nil, 10, time.Minute)
+type MockStoreMockRecorder struct {
+	mock *MockStore
+}
 
-	start := contracts.Envelope[contracts.RepoWatchPayload]{
-		EventType: contracts.EventRepoWatchStart,
-		Payload:   contracts.RepoWatchPayload{Repo: "owner/repo"},
+func NewMockStore(ctrl *gomock.Controller) *MockStore {
+	mock := &MockStore{ctrl: ctrl}
+	mock.recorder = &MockStoreMockRecorder{mock}
+	return mock
+}
+
+func (m *MockStore) EXPECT() *MockStoreMockRecorder {
+	return m.recorder
+}
+
+func (m *MockStore) ApplyWatchCommand(ctx context.Context, payload contracts.RepoWatchCommandPayload, correlationID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ApplyWatchCommand", ctx, payload, correlationID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockStoreMockRecorder) ApplyWatchCommand(ctx, payload, correlationID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApplyWatchCommand", reflect.TypeOf((*MockStore)(nil).ApplyWatchCommand), ctx, payload, correlationID)
+}
+
+func (m *MockStore) ClaimDue(ctx context.Context, limit int, nextScanIn time.Duration) ([]WatchedRepo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimDue", ctx, limit, nextScanIn)
+	ret0, _ := ret[0].([]WatchedRepo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockStoreMockRecorder) ClaimDue(ctx, limit, nextScanIn interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimDue", reflect.TypeOf((*MockStore)(nil).ClaimDue), ctx, limit, nextScanIn)
+}
+
+func (m *MockStore) MarkReleaseDetected(ctx context.Context, repo, tag, correlationID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkReleaseDetected", ctx, repo, tag, correlationID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockStoreMockRecorder) MarkReleaseDetected(ctx, repo, tag, correlationID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkReleaseDetected", reflect.TypeOf((*MockStore)(nil).MarkReleaseDetected), ctx, repo, tag, correlationID)
+}
+
+func TestHandleWatchlistCommand_StartAndStop(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := NewMockStore(ctrl)
+	releases := NewMockReleaseProvider(ctrl)
+	svc := NewService(store, releases, nil, 10, time.Minute)
+
+	start := contracts.Envelope[contracts.RepoWatchCommandPayload]{
+		EventType:     contracts.EventStartWatchingRepo,
+		CorrelationID: "corr-1",
+		Payload: contracts.RepoWatchCommandPayload{
+			SagaID: "saga-1",
+			Action: contracts.RepoWatchActionStart,
+			Repo:   "owner/repo",
+		},
 	}
 	startRaw, _ := json.Marshal(start)
-	if err := svc.HandleWatchlistEvent(context.Background(), startRaw); err != nil {
-		t.Fatalf("HandleWatchlistEvent(start) error = %v", err)
-	}
-	if store.startedRepo != "owner/repo" {
-		t.Fatalf("startedRepo = %q, want owner/repo", store.startedRepo)
+	store.EXPECT().
+		ApplyWatchCommand(gomock.Any(), start.Payload, "corr-1").
+		Return(nil)
+	if err := svc.HandleWatchlistCommand(context.Background(), startRaw); err != nil {
+		t.Fatalf("HandleWatchlistCommand(start) error = %v", err)
 	}
 
-	stop := contracts.Envelope[contracts.RepoWatchPayload]{
-		EventType: contracts.EventRepoWatchStop,
-		Payload:   contracts.RepoWatchPayload{Repo: "owner/repo"},
+	stop := contracts.Envelope[contracts.RepoWatchCommandPayload]{
+		EventType:     contracts.EventStopWatchingRepo,
+		CorrelationID: "corr-2",
+		Payload: contracts.RepoWatchCommandPayload{
+			SagaID: "saga-2",
+			Action: contracts.RepoWatchActionStop,
+			Repo:   "owner/repo",
+		},
 	}
 	stopRaw, _ := json.Marshal(stop)
-	if err := svc.HandleWatchlistEvent(context.Background(), stopRaw); err != nil {
-		t.Fatalf("HandleWatchlistEvent(stop) error = %v", err)
-	}
-	if store.stoppedRepo != "owner/repo" {
-		t.Fatalf("stoppedRepo = %q, want owner/repo", store.stoppedRepo)
+	store.EXPECT().
+		ApplyWatchCommand(gomock.Any(), stop.Payload, "corr-2").
+		Return(nil)
+	if err := svc.HandleWatchlistCommand(context.Background(), stopRaw); err != nil {
+		t.Fatalf("HandleWatchlistCommand(stop) error = %v", err)
 	}
 }
 
-func TestHandleWatchlistEvent_ReturnsDecodeUnsupportedAndStoreErrors(t *testing.T) {
-	svc := NewService(&fakeStore{}, fakeReleaseProvider{}, nil, 10, time.Minute)
-	if err := svc.HandleWatchlistEvent(context.Background(), []byte("not-json")); err == nil {
-		t.Fatal("expected decode error, got nil")
+func TestHandleWatchlistCommand_ReturnsDecodeUnsupportedAndStoreErrors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := NewMockStore(ctrl)
+	releases := NewMockReleaseProvider(ctrl)
+	svc := NewService(store, releases, nil, 10, time.Minute)
+	if err := svc.HandleWatchlistCommand(context.Background(), []byte("not-json")); !errors.Is(err, kafka.ErrNonRetryable) {
+		t.Fatalf("decode error = %v, want ErrNonRetryable", err)
 	}
 
-	unsupported := contracts.Envelope[contracts.RepoWatchPayload]{
+	unsupported := contracts.Envelope[contracts.RepoWatchCommandPayload]{
 		EventType: "UnknownEvent",
-		Payload:   contracts.RepoWatchPayload{Repo: "owner/repo"},
+		Payload:   contracts.RepoWatchCommandPayload{SagaID: "saga-1", Action: contracts.RepoWatchActionStart, Repo: "owner/repo"},
 	}
 	rawUnsupported, _ := json.Marshal(unsupported)
-	if err := svc.HandleWatchlistEvent(context.Background(), rawUnsupported); err == nil {
+	if err := svc.HandleWatchlistCommand(context.Background(), rawUnsupported); err == nil {
 		t.Fatal("expected unsupported event error, got nil")
 	}
 
 	storeErr := errors.New("db down")
-	svc = NewService(&fakeStore{err: storeErr}, fakeReleaseProvider{}, nil, 10, time.Minute)
-	start := contracts.Envelope[contracts.RepoWatchPayload]{
-		EventType: contracts.EventRepoWatchStart,
-		Payload:   contracts.RepoWatchPayload{Repo: "owner/repo"},
+	start := contracts.Envelope[contracts.RepoWatchCommandPayload]{
+		EventType: contracts.EventStartWatchingRepo,
+		Payload:   contracts.RepoWatchCommandPayload{SagaID: "saga-1", Action: contracts.RepoWatchActionStart, Repo: "owner/repo"},
 	}
 	rawStart, _ := json.Marshal(start)
-	if err := svc.HandleWatchlistEvent(context.Background(), rawStart); !errors.Is(err, storeErr) {
+	store.EXPECT().
+		ApplyWatchCommand(gomock.Any(), start.Payload, "").
+		Return(storeErr)
+	if err := svc.HandleWatchlistCommand(context.Background(), rawStart); !errors.Is(err, storeErr) {
 		t.Fatalf("store error = %v, want %v", err, storeErr)
 	}
 }
 
 func TestScanOnce_ReturnsClaimError(t *testing.T) {
+	ctrl := gomock.NewController(t)
 	claimErr := errors.New("claim failed")
-	svc := NewService(&fakeStore{err: claimErr}, fakeReleaseProvider{}, nil, 10, time.Minute)
+	store := NewMockStore(ctrl)
+	releases := NewMockReleaseProvider(ctrl)
+	store.EXPECT().
+		ClaimDue(gomock.Any(), 10, time.Minute).
+		Return(nil, claimErr)
+	svc := NewService(store, releases, nil, 10, time.Minute)
 	if err := svc.ScanOnce(context.Background()); !errors.Is(err, claimErr) {
 		t.Fatalf("ScanOnce() error = %v, want %v", err, claimErr)
 	}
 }
 
 func TestScanOnce_ClaimsConfiguredBatchAndPublishesNewRelease(t *testing.T) {
-	store := &fakeStore{
-		claimed:   []WatchedRepo{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}},
-		published: true,
-	}
-	svc := NewService(store, fakeReleaseProvider{tag: "v2.0.0"}, nil, 25, 45*time.Second)
+	ctrl := gomock.NewController(t)
+	store := NewMockStore(ctrl)
+	releases := NewMockReleaseProvider(ctrl)
+	store.EXPECT().
+		ClaimDue(gomock.Any(), 25, 45*time.Second).
+		Return([]WatchedRepo{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}}, nil)
+	releases.EXPECT().
+		GetLatestTag(gomock.Any(), "owner/repo").
+		Return("v2.0.0", nil)
+	store.EXPECT().
+		MarkReleaseDetected(gomock.Any(), "owner/repo", "v2.0.0", gomock.Any()).
+		Return(true, nil)
+	svc := NewService(store, releases, nil, 25, 45*time.Second)
 
 	if err := svc.ScanOnce(context.Background()); err != nil {
 		t.Fatalf("ScanOnce() error = %v", err)
-	}
-	if store.claimLimit != 25 || store.nextScanIn != 45*time.Second {
-		t.Fatalf("claim args = (%d, %s), want (25, 45s)", store.claimLimit, store.nextScanIn)
-	}
-	if store.detectedRepo != "owner/repo" || store.detectedTag != "v2.0.0" {
-		t.Fatalf("detected = (%q, %q), want (owner/repo, v2.0.0)", store.detectedRepo, store.detectedTag)
 	}
 }
 
@@ -148,13 +223,18 @@ func TestScanOnce_DoesNotPublishUnchangedOrErroredTag(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := &fakeStore{claimed: []WatchedRepo{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}}}
-			svc := NewService(store, fakeReleaseProvider{tag: tt.tag, err: tt.err}, nil, 10, time.Minute)
+			ctrl := gomock.NewController(t)
+			store := NewMockStore(ctrl)
+			releases := NewMockReleaseProvider(ctrl)
+			store.EXPECT().
+				ClaimDue(gomock.Any(), 10, time.Minute).
+				Return([]WatchedRepo{{Repo: "owner/repo", LastSeenTag: "v1.0.0"}}, nil)
+			releases.EXPECT().
+				GetLatestTag(gomock.Any(), "owner/repo").
+				Return(tt.tag, tt.err)
+			svc := NewService(store, releases, nil, 10, time.Minute)
 			if err := svc.ScanOnce(context.Background()); err != nil {
 				t.Fatalf("ScanOnce() error = %v", err)
-			}
-			if store.detectedRepo != "" {
-				t.Fatalf("release should not be marked, got repo %q", store.detectedRepo)
 			}
 		})
 	}

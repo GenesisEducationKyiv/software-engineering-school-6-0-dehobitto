@@ -50,6 +50,17 @@ func NewService(repo Store, sender EmailSender, retries RetryPublisher, log logg
 	}
 }
 
+func (s *Service) SendConfirmation(_ context.Context, email, repo, confirmURL string) error {
+	message := fmt.Sprintf("Welcome! Please confirm your subscription to GitHub repository updates by clicking here: %s", confirmURL)
+	if err := s.sender.Send(email, message); err != nil {
+		notificationsFailed.Inc()
+		return fmt.Errorf("send confirmation email: %w", err)
+	}
+	notificationsSent.Inc()
+	s.log.WithField("repo", repo).Info("confirmation notification sent")
+	return nil
+}
+
 func (s *Service) Process(ctx context.Context, payload contracts.NotificationSendRequestedPayload) error {
 	delivery, err := s.repo.UpsertPending(ctx, payload)
 	if err != nil {

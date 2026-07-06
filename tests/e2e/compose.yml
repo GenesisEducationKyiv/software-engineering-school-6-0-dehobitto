@@ -52,9 +52,11 @@ services:
     depends_on:
       subscription-api:
         condition: service_started
+      notification-service:
+        condition: service_started
     command:
       - /bin/bash
       - -lc
       - |
-        node -e "const http=require('http');let tries=0;(function wait(){http.get('http://subscription-api:8080/',res=>{res.resume();process.exit(0)}).on('error',()=>{if(++tries>60)process.exit(1);setTimeout(wait,2000)})})()"
+        node -e "const http=require('http'); const checks=[['subscription-api','http://subscription-api:8080/',s=>s>=200&&s<500],['notification-service','http://notification-service:8083/internal/notifications/confirmation',s=>s===405||s===400||s===202]]; const sleep=ms=>new Promise(r=>setTimeout(r,ms)); const probe=(url)=>new Promise((resolve,reject)=>{http.get(url,res=>{res.resume();resolve(res.statusCode);}).on('error',reject);}); (async()=>{for(const [name,url,isReady] of checks){let ready=false; for(let tries=0; tries<=60; tries++){try{const status=await probe(url); if(isReady(status)){ready=true; break;}}catch{} await sleep(2000);} if(!ready){console.error('Timed out waiting for', name, url); process.exit(1);}}})().catch(err=>{console.error(err); process.exit(1);});"
         npx playwright test

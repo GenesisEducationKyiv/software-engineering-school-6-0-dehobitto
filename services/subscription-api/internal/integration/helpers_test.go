@@ -10,9 +10,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -65,17 +68,96 @@ func run(m *testing.M) int {
 type testEnv struct {
 	router *gin.Engine
 	pool   *pgxpool.Pool
+
+	confirmationMu       sync.Mutex
+	confirmationRequests []confirmationRequest
 }
 
-func newTestEnv(t *testing.T, fake gitHubFake) *testEnv {
+type confirmationRequest struct {
+	Email      string `json:"email"`
+	Repo       string `json:"repo"`
+	ConfirmURL string `json:"confirm_url"`
+}
+
+type MockGitHubClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockGitHubClientMockRecorder
+}
+
+type MockGitHubClientMockRecorder struct {
+	mock *MockGitHubClient
+}
+
+func NewMockGitHubClient(ctrl *gomock.Controller) *MockGitHubClient {
+	mock := &MockGitHubClient{ctrl: ctrl}
+	mock.recorder = &MockGitHubClientMockRecorder{mock}
+	return mock
+}
+
+func (m *MockGitHubClient) EXPECT() *MockGitHubClientMockRecorder {
+	return m.recorder
+}
+
+func (m *MockGitHubClient) CheckIfRepoExists(ctx context.Context, repo string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CheckIfRepoExists", ctx, repo)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockGitHubClientMockRecorder) CheckIfRepoExists(ctx, repo interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckIfRepoExists", reflect.TypeOf((*MockGitHubClient)(nil).CheckIfRepoExists), ctx, repo)
+}
+
+func (m *MockGitHubClient) GetLatestTag(ctx context.Context, repo string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestTag", ctx, repo)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockGitHubClientMockRecorder) GetLatestTag(ctx, repo interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestTag", reflect.TypeOf((*MockGitHubClient)(nil).GetLatestTag), ctx, repo)
+}
+
+func newTestEnv(t *testing.T, github subscription.GitHubClient, notificationStatus int) *testEnv {
 	t.Helper()
-	if _, err := sharedPool.Exec(context.Background(), "TRUNCATE TABLE subscriptions, outbox_events"); err != nil {
+	if _, err := sharedPool.Exec(context.Background(), "TRUNCATE TABLE subscriptions, saga_instances, outbox_events"); err != nil {
 		t.Fatalf("truncate tables: %v", err)
 	}
 
+	if notificationStatus == 0 {
+		notificationStatus = http.StatusAccepted
+	}
+
+	env := &testEnv{pool: sharedPool}
+	notificationServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/notifications/confirmation" {
+			t.Errorf("notification path = %q, want /internal/notifications/confirmation", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		var request confirmationRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode confirmation request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		env.confirmationMu.Lock()
+		env.confirmationRequests = append(env.confirmationRequests, request)
+		env.confirmationMu.Unlock()
+		w.WriteHeader(notificationStatus)
+	}))
+	t.Cleanup(notificationServer.Close)
+
 	repo := subscription.NewRepository(sharedPool)
-	publisher := subscription.NewOutboxNotificationPublisher(sharedPool, "http://localhost:8080")
-	svc := subscription.NewService(repo, publisher, fake, nil)
+	publisher := subscription.NewOutboxNotificationPublisher(sharedPool, "http://localhost:8080", notificationServer.URL)
+	svc := subscription.NewService(repo, publisher, github, nil)
 
 	gin.SetMode(gin.TestMode)
 	router := httpapi.SetupRouter(httpapi.RouterDeps{
@@ -85,7 +167,17 @@ func newTestEnv(t *testing.T, fake gitHubFake) *testEnv {
 		Gatherer: prometheus.NewRegistry(),
 	})
 
-	return &testEnv{router: router, pool: sharedPool}
+	env.router = router
+	return env
+}
+
+func newGitHubMock(t *testing.T, existsErr error, tag string, tagErr error) *MockGitHubClient {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	github := NewMockGitHubClient(ctrl)
+	github.EXPECT().CheckIfRepoExists(gomock.Any(), gomock.Any()).Return(existsErr).AnyTimes()
+	github.EXPECT().GetLatestTag(gomock.Any(), gomock.Any()).Return(tag, tagErr).AnyTimes()
+	return github
 }
 
 func (e *testEnv) subscribe(t *testing.T, email, repo string, apiKey string) *httptest.ResponseRecorder {
@@ -184,20 +276,6 @@ func outboxCount(t *testing.T, eventType, topic string) int {
 	return count
 }
 
-type gitHubFake struct {
-	existsErr error
-	tag       string
-	tagErr    error
-}
-
-func (g gitHubFake) CheckIfRepoExists(context.Context, string) error {
-	return g.existsErr
-}
-
-func (g gitHubFake) GetLatestTag(context.Context, string) (string, error) {
-	return g.tag, g.tagErr
-}
-
 func githubError(status int) error {
 	switch status {
 	case http.StatusNotFound:
@@ -212,4 +290,21 @@ func githubError(status int) error {
 func notificationCommandCount(t *testing.T) int {
 	t.Helper()
 	return outboxCount(t, contracts.EventNotificationRequested, contracts.TopicNotificationCommands)
+}
+
+func (e *testEnv) confirmationRequestCount() int {
+	e.confirmationMu.Lock()
+	defer e.confirmationMu.Unlock()
+	return len(e.confirmationRequests)
+}
+
+func (e *testEnv) latestConfirmationRequest(t *testing.T) confirmationRequest {
+	t.Helper()
+
+	e.confirmationMu.Lock()
+	defer e.confirmationMu.Unlock()
+	if len(e.confirmationRequests) == 0 {
+		t.Fatal("expected at least one confirmation request")
+	}
+	return e.confirmationRequests[len(e.confirmationRequests)-1]
 }

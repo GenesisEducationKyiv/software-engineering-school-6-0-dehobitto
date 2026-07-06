@@ -33,12 +33,12 @@ type RouterDeps struct {
 
 type SubscriptionReader interface {
 	GetSubscriptions(ctx context.Context, email string) ([]subscription.Subscription, error)
-	ConfirmSubscriptionByToken(ctx context.Context, token string) error
 	Unsubscribe(ctx context.Context, token string) error
 }
 
 type SubscriptionCreator interface {
 	Subscribe(ctx context.Context, email, repo string) error
+	ConfirmSubscriptionByToken(ctx context.Context, token string) error
 }
 
 func SetupRouter(deps RouterDeps) *gin.Engine {
@@ -110,6 +110,7 @@ func (h handler) subscribe(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": "Subscription successful. Confirmation email sent."})
 		return
 	}
+
 	switch {
 	case errors.Is(err, subscription.ErrAlreadySubscribed):
 		h.observeSubscribe("already_subscribed")
@@ -123,6 +124,9 @@ func (h handler) subscribe(c *gin.Context) {
 	case errors.Is(err, subscription.ErrGitHubUnavailable):
 		h.observeSubscribe("github_unavailable")
 		c.JSON(http.StatusBadGateway, gin.H{"error": "External API error"})
+	case errors.Is(err, subscription.ErrConfirmationUnavailable):
+		h.observeSubscribe("confirmation_unavailable")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service temporarily unavailable. Try again later."})
 	default:
 		h.observeSubscribe("error")
 		h.log.WithField("repo", input.Repo).WithError(err).Error("subscribe failed")
@@ -156,8 +160,12 @@ func (h handler) confirm(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token"})
 		return
 	}
-	if err := h.repo.ConfirmSubscriptionByToken(c.Request.Context(), token); err != nil {
+	if err := h.service.ConfirmSubscriptionByToken(c.Request.Context(), token); errors.Is(err, subscription.ErrTokenNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Token not found"})
+		return
+	} else if err != nil {
+		h.log.WithError(err).Error("confirm subscription failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Subscription confirmed successfully"})

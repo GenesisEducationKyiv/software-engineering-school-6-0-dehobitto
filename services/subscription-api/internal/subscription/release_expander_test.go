@@ -3,47 +3,86 @@ package subscription
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
+
+	"github.com/golang/mock/gomock"
 
 	"subber/pkg/contracts"
 )
 
-type fakeSubscriberStore struct {
-	subscribers []string
-	err         error
-	repo        string
+type MockSubscriberStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockSubscriberStoreMockRecorder
 }
 
-func (s *fakeSubscriberStore) GetSubscribers(_ context.Context, repo string) ([]string, error) {
-	s.repo = repo
-	return s.subscribers, s.err
+type MockSubscriberStoreMockRecorder struct {
+	mock *MockSubscriberStore
 }
 
-type fakeReleasePublisher struct {
-	err   error
-	calls []releaseNotificationCall
+func NewMockSubscriberStore(ctrl *gomock.Controller) *MockSubscriberStore {
+	mock := &MockSubscriberStore{ctrl: ctrl}
+	mock.recorder = &MockSubscriberStoreMockRecorder{mock}
+	return mock
 }
 
-type releaseNotificationCall struct {
-	email         string
-	repo          string
-	tag           string
-	correlationID string
+func (m *MockSubscriberStore) EXPECT() *MockSubscriberStoreMockRecorder {
+	return m.recorder
 }
 
-func (p *fakeReleasePublisher) PublishReleaseNotification(_ context.Context, email, repo, tag, correlationID string) error {
-	p.calls = append(p.calls, releaseNotificationCall{
-		email:         email,
-		repo:          repo,
-		tag:           tag,
-		correlationID: correlationID,
-	})
-	return p.err
+func (m *MockSubscriberStore) GetSubscribers(ctx context.Context, repo string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSubscribers", ctx, repo)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockSubscriberStoreMockRecorder) GetSubscribers(ctx, repo interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSubscribers", reflect.TypeOf((*MockSubscriberStore)(nil).GetSubscribers), ctx, repo)
+}
+
+type MockReleaseNotificationPublisher struct {
+	ctrl     *gomock.Controller
+	recorder *MockReleaseNotificationPublisherMockRecorder
+}
+
+type MockReleaseNotificationPublisherMockRecorder struct {
+	mock *MockReleaseNotificationPublisher
+}
+
+func NewMockReleaseNotificationPublisher(ctrl *gomock.Controller) *MockReleaseNotificationPublisher {
+	mock := &MockReleaseNotificationPublisher{ctrl: ctrl}
+	mock.recorder = &MockReleaseNotificationPublisherMockRecorder{mock}
+	return mock
+}
+
+func (m *MockReleaseNotificationPublisher) EXPECT() *MockReleaseNotificationPublisherMockRecorder {
+	return m.recorder
+}
+
+func (m *MockReleaseNotificationPublisher) PublishReleaseNotification(ctx context.Context, email, repo, tag, correlationID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishReleaseNotification", ctx, email, repo, tag, correlationID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockReleaseNotificationPublisherMockRecorder) PublishReleaseNotification(ctx, email, repo, tag, correlationID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishReleaseNotification", reflect.TypeOf((*MockReleaseNotificationPublisher)(nil).PublishReleaseNotification), ctx, email, repo, tag, correlationID)
 }
 
 func TestReleaseExpander_PublishesNotificationForEverySubscriber(t *testing.T) {
-	store := &fakeSubscriberStore{subscribers: []string{"a@example.com", "b@example.com"}}
-	publisher := &fakeReleasePublisher{}
+	ctrl := gomock.NewController(t)
+	store := NewMockSubscriberStore(ctrl)
+	publisher := NewMockReleaseNotificationPublisher(ctrl)
+	gomock.InOrder(
+		store.EXPECT().GetSubscribers(gomock.Any(), "owner/repo").Return([]string{"a@example.com", "b@example.com"}, nil),
+		publisher.EXPECT().PublishReleaseNotification(gomock.Any(), "a@example.com", "owner/repo", "v2.0.0", "corr-1").Return(nil),
+		publisher.EXPECT().PublishReleaseNotification(gomock.Any(), "b@example.com", "owner/repo", "v2.0.0", "corr-1").Return(nil),
+	)
 	expander := NewReleaseExpander(store, publisher)
 
 	event := contracts.Envelope[contracts.ReleaseDetectedPayload]{
@@ -56,24 +95,14 @@ func TestReleaseExpander_PublishesNotificationForEverySubscriber(t *testing.T) {
 	if err := expander.Expand(context.Background(), event); err != nil {
 		t.Fatalf("Expand() error = %v", err)
 	}
-
-	if store.repo != "owner/repo" {
-		t.Fatalf("store repo = %q, want owner/repo", store.repo)
-	}
-	if len(publisher.calls) != 2 {
-		t.Fatalf("publisher calls = %d, want 2", len(publisher.calls))
-	}
-	if publisher.calls[0] != (releaseNotificationCall{"a@example.com", "owner/repo", "v2.0.0", "corr-1"}) {
-		t.Fatalf("first call = %#v", publisher.calls[0])
-	}
-	if publisher.calls[1] != (releaseNotificationCall{"b@example.com", "owner/repo", "v2.0.0", "corr-1"}) {
-		t.Fatalf("second call = %#v", publisher.calls[1])
-	}
 }
 
 func TestReleaseExpander_NoSubscribersDoesNothing(t *testing.T) {
-	publisher := &fakeReleasePublisher{}
-	expander := NewReleaseExpander(&fakeSubscriberStore{}, publisher)
+	ctrl := gomock.NewController(t)
+	store := NewMockSubscriberStore(ctrl)
+	publisher := NewMockReleaseNotificationPublisher(ctrl)
+	store.EXPECT().GetSubscribers(gomock.Any(), "owner/repo").Return(nil, nil)
+	expander := NewReleaseExpander(store, publisher)
 
 	err := expander.Expand(context.Background(), contracts.Envelope[contracts.ReleaseDetectedPayload]{
 		Payload: contracts.ReleaseDetectedPayload{Repo: "owner/repo", Tag: "v1"},
@@ -81,21 +110,27 @@ func TestReleaseExpander_NoSubscribersDoesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Expand() error = %v", err)
 	}
-	if len(publisher.calls) != 0 {
-		t.Fatalf("publisher calls = %d, want 0", len(publisher.calls))
-	}
 }
 
 func TestReleaseExpander_ReturnsStoreAndPublisherErrors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := NewMockSubscriberStore(ctrl)
+	publisher := NewMockReleaseNotificationPublisher(ctrl)
 	storeErr := errors.New("db down")
-	expander := NewReleaseExpander(&fakeSubscriberStore{err: storeErr}, &fakeReleasePublisher{})
+	store.EXPECT().GetSubscribers(gomock.Any(), "").Return(nil, storeErr)
+	expander := NewReleaseExpander(store, publisher)
 	if err := expander.Expand(context.Background(), contracts.Envelope[contracts.ReleaseDetectedPayload]{}); !errors.Is(err, storeErr) {
 		t.Fatalf("Expand() error = %v, want store error", err)
 	}
 
+	store = NewMockSubscriberStore(ctrl)
+	publisher = NewMockReleaseNotificationPublisher(ctrl)
 	publisherErr := errors.New("outbox down")
-	publisher := &fakeReleasePublisher{err: publisherErr}
-	expander = NewReleaseExpander(&fakeSubscriberStore{subscribers: []string{"a@example.com"}}, publisher)
+	gomock.InOrder(
+		store.EXPECT().GetSubscribers(gomock.Any(), "owner/repo").Return([]string{"a@example.com"}, nil),
+		publisher.EXPECT().PublishReleaseNotification(gomock.Any(), "a@example.com", "owner/repo", "v1", "").Return(publisherErr),
+	)
+	expander = NewReleaseExpander(store, publisher)
 	err := expander.Expand(context.Background(), contracts.Envelope[contracts.ReleaseDetectedPayload]{
 		Payload: contracts.ReleaseDetectedPayload{Repo: "owner/repo", Tag: "v1"},
 	})

@@ -3,15 +3,26 @@ package contracts
 import "time"
 
 const (
-	TopicWatchlistEvents       = "subber.watchlist.events"
-	TopicWatchlistDLQ          = "subber.watchlist.dlq"
+	TopicWatchlistSagaRequests = "subber.watchlist.saga.requests"
+	TopicWatchlistCommands     = "subber.watchlist.saga.commands"
+	TopicWatchlistSagaEvents   = "subber.watchlist.saga.events"
+	TopicWatchlistCommandsDLQ  = "subber.watchlist.commands.dlq"
 	TopicReleaseEvents         = "subber.release.events"
 	TopicNotificationCommands  = "subber.notification.commands"
 	TopicNotificationRetry1m   = "subber.notification.retry.1m"
 	TopicNotificationRetry10m  = "subber.notification.retry.10m"
 	TopicNotificationDLQ       = "subber.notification.dlq"
-	EventRepoWatchStart        = "RepoWatchStartRequested"
-	EventRepoWatchStop         = "RepoWatchStopRequested"
+
+	RepoWatchActionStart = "start_watch"
+	RepoWatchActionStop  = "stop_watch"
+
+	EventRepoWatchSagaRequested = "RepoWatchSagaRequested"
+	EventStartWatchingRepo      = "StartWatchingRepo"
+	EventStopWatchingRepo       = "StopWatchingRepo"
+	EventRepoWatchStarted       = "RepoWatchStarted"
+	EventRepoWatchStopped       = "RepoWatchStopped"
+	EventRepoWatchFailed        = "RepoWatchFailed"
+
 	EventReleaseDetected       = "ReleaseDetected"
 	EventNotificationRequested = "NotificationSendRequested"
 	EventConsumerDeadLettered  = "ConsumerMessageDeadLettered"
@@ -29,6 +40,26 @@ type Envelope[T any] struct {
 
 type RepoWatchPayload struct {
 	Repo string `json:"repo"`
+}
+
+type RepoWatchSagaPayload struct {
+	SagaID string `json:"saga_id"`
+	Action string `json:"action"`
+	Repo   string `json:"repo"`
+	Email  string `json:"email,omitempty"`
+}
+
+type RepoWatchCommandPayload struct {
+	SagaID string `json:"saga_id"`
+	Action string `json:"action"`
+	Repo   string `json:"repo"`
+}
+
+type RepoWatchAckPayload struct {
+	SagaID string `json:"saga_id"`
+	Action string `json:"action"`
+	Repo   string `json:"repo"`
+	Error  string `json:"error,omitempty"`
 }
 
 type ReleaseDetectedPayload struct {

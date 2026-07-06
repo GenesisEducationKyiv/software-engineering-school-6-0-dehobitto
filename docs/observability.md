@@ -134,8 +134,9 @@ End-to-end smoke should verify:
 subscribe
 -> confirmation NotificationSendRequested
 -> confirm
--> RepoWatchStartRequested
--> scanner watchlist
+-> RepoWatchSagaRequested
+-> StartWatchingRepo
+-> RepoWatchStarted
 -> ReleaseDetected
 -> NotificationSendRequested
 -> notification-service delivery

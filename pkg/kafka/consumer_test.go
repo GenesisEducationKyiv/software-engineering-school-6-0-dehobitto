@@ -4,73 +4,120 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/segmentio/kafka-go"
 
 	"subber/pkg/contracts"
 )
 
-type fakeReader struct {
-	messages       []kafka.Message
-	fetchErr       error
-	commitErr      error
-	fetches        int
-	committed      []kafka.Message
-	closeCallCount int
+type MockDeadLetterPublisher struct {
+	ctrl     *gomock.Controller
+	recorder *MockDeadLetterPublisherMockRecorder
 }
 
-type fakeDeadLetterPublisher struct {
-	err      error
-	messages []publishedDeadLetter
+type MockDeadLetterPublisherMockRecorder struct {
+	mock *MockDeadLetterPublisher
 }
 
-type publishedDeadLetter struct {
-	topic string
-	key   string
-	value []byte
+func NewMockDeadLetterPublisher(ctrl *gomock.Controller) *MockDeadLetterPublisher {
+	mock := &MockDeadLetterPublisher{ctrl: ctrl}
+	mock.recorder = &MockDeadLetterPublisherMockRecorder{mock}
+	return mock
 }
 
-func (p *fakeDeadLetterPublisher) Publish(_ context.Context, topic, key string, value []byte) error {
-	if p.err != nil {
-		return p.err
+func (m *MockDeadLetterPublisher) EXPECT() *MockDeadLetterPublisherMockRecorder {
+	return m.recorder
+}
+
+func (m *MockDeadLetterPublisher) Publish(ctx context.Context, topic, key string, value []byte) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Publish", ctx, topic, key, value)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockDeadLetterPublisherMockRecorder) Publish(ctx, topic, key, value interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Publish", reflect.TypeOf((*MockDeadLetterPublisher)(nil).Publish), ctx, topic, key, value)
+}
+
+type MockmessageReader struct {
+	ctrl     *gomock.Controller
+	recorder *MockmessageReaderMockRecorder
+}
+
+type MockmessageReaderMockRecorder struct {
+	mock *MockmessageReader
+}
+
+func NewMockmessageReader(ctrl *gomock.Controller) *MockmessageReader {
+	mock := &MockmessageReader{ctrl: ctrl}
+	mock.recorder = &MockmessageReaderMockRecorder{mock}
+	return mock
+}
+
+func (m *MockmessageReader) EXPECT() *MockmessageReaderMockRecorder {
+	return m.recorder
+}
+
+func (m *MockmessageReader) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockmessageReaderMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockmessageReader)(nil).Close))
+}
+
+func (m *MockmessageReader) CommitMessages(ctx context.Context, msgs ...kafka.Message) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range msgs {
+		varargs = append(varargs, a)
 	}
-	p.messages = append(p.messages, publishedDeadLetter{topic: topic, key: key, value: value})
-	return nil
+	ret := m.ctrl.Call(m, "CommitMessages", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
-func (r *fakeReader) FetchMessage(ctx context.Context) (kafka.Message, error) {
-	if r.fetchErr != nil {
-		return kafka.Message{}, r.fetchErr
-	}
-	if r.fetches >= len(r.messages) {
-		<-ctx.Done()
-		return kafka.Message{}, ctx.Err()
-	}
-	message := r.messages[r.fetches]
-	r.fetches++
-	return message, nil
+func (mr *MockmessageReaderMockRecorder) CommitMessages(ctx interface{}, msgs ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, msgs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CommitMessages", reflect.TypeOf((*MockmessageReader)(nil).CommitMessages), varargs...)
 }
 
-func (r *fakeReader) CommitMessages(_ context.Context, msgs ...kafka.Message) error {
-	if r.commitErr != nil {
-		return r.commitErr
-	}
-	r.committed = append(r.committed, msgs...)
-	return nil
+func (m *MockmessageReader) FetchMessage(ctx context.Context) (kafka.Message, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FetchMessage", ctx)
+	ret0, _ := ret[0].(kafka.Message)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
-func (r *fakeReader) Close() error {
-	r.closeCallCount++
-	return nil
+func (mr *MockmessageReaderMockRecorder) FetchMessage(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FetchMessage", reflect.TypeOf((*MockmessageReader)(nil).FetchMessage), ctx)
 }
 
 func TestConsumer_StartCommitsSuccessfulMessages(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reader := NewMockmessageReader(ctrl)
 	ctx, cancel := context.WithCancel(context.Background())
-	reader := &fakeReader{messages: []kafka.Message{
-		{Topic: "topic", Offset: 1, Key: []byte("a"), Value: []byte("first")},
-		{Topic: "topic", Offset: 2, Key: []byte("b"), Value: []byte("second")},
-	}}
+	first := kafka.Message{Topic: "topic", Offset: 1, Key: []byte("a"), Value: []byte("first")}
+	second := kafka.Message{Topic: "topic", Offset: 2, Key: []byte("b"), Value: []byte("second")}
+	gomock.InOrder(
+		reader.EXPECT().FetchMessage(ctx).Return(first, nil),
+		reader.EXPECT().CommitMessages(ctx, first).Return(nil),
+		reader.EXPECT().FetchMessage(ctx).Return(second, nil),
+		reader.EXPECT().CommitMessages(ctx, second).Return(nil),
+		reader.EXPECT().FetchMessage(ctx).Return(kafka.Message{}, context.Canceled),
+	)
 	consumer := newConsumer(reader, "topic", "group", nil)
 
 	handled := 0
@@ -91,17 +138,21 @@ func TestConsumer_StartCommitsSuccessfulMessages(t *testing.T) {
 	if handled != 2 {
 		t.Fatalf("handled = %d, want 2", handled)
 	}
-	if len(reader.committed) != 2 || reader.committed[0].Offset != 1 || reader.committed[1].Offset != 2 {
-		t.Fatalf("committed offsets = %#v, want 1 and 2", committedOffsets(reader.committed))
-	}
 }
 
 func TestConsumer_StartSkipsAndCommitsNonRetryableErrors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reader := NewMockmessageReader(ctrl)
 	ctx, cancel := context.WithCancel(context.Background())
-	reader := &fakeReader{messages: []kafka.Message{
-		{Topic: "topic", Offset: 1, Key: []byte("bad"), Value: []byte("not-json")},
-		{Topic: "topic", Offset: 2, Key: []byte("good"), Value: []byte(`{"ok":true}`)},
-	}}
+	bad := kafka.Message{Topic: "topic", Offset: 1, Key: []byte("bad"), Value: []byte("not-json")}
+	good := kafka.Message{Topic: "topic", Offset: 2, Key: []byte("good"), Value: []byte(`{"ok":true}`)}
+	gomock.InOrder(
+		reader.EXPECT().FetchMessage(ctx).Return(bad, nil),
+		reader.EXPECT().CommitMessages(ctx, bad).Return(nil),
+		reader.EXPECT().FetchMessage(ctx).Return(good, nil),
+		reader.EXPECT().CommitMessages(ctx, good).Return(nil),
+		reader.EXPECT().FetchMessage(ctx).Return(kafka.Message{}, context.Canceled),
+	)
 	consumer := newConsumer(reader, "topic", "group", nil)
 
 	handled := 0
@@ -120,15 +171,13 @@ func TestConsumer_StartSkipsAndCommitsNonRetryableErrors(t *testing.T) {
 	if handled != 2 {
 		t.Fatalf("handled = %d, want 2", handled)
 	}
-	if len(reader.committed) != 2 || reader.committed[0].Offset != 1 || reader.committed[1].Offset != 2 {
-		t.Fatalf("committed offsets = %#v, want 1 and 2", committedOffsets(reader.committed))
-	}
 }
 
 func TestConsumer_StartStopsWithoutCommitOnRetryableErrors(t *testing.T) {
-	reader := &fakeReader{messages: []kafka.Message{
-		{Topic: "topic", Offset: 1, Key: []byte("retry"), Value: []byte(`{"ok":true}`)},
-	}}
+	ctrl := gomock.NewController(t)
+	reader := NewMockmessageReader(ctrl)
+	message := kafka.Message{Topic: "topic", Offset: 1, Key: []byte("retry"), Value: []byte(`{"ok":true}`)}
+	reader.EXPECT().FetchMessage(gomock.Any()).Return(message, nil)
 	consumer := newConsumer(reader, "topic", "group", nil)
 	retryErr := errors.New("database down")
 
@@ -139,15 +188,13 @@ func TestConsumer_StartStopsWithoutCommitOnRetryableErrors(t *testing.T) {
 	if !errors.Is(err, retryErr) {
 		t.Fatalf("Start() error = %v, want %v", err, retryErr)
 	}
-	if len(reader.committed) != 0 {
-		t.Fatalf("committed offsets = %#v, want none", committedOffsets(reader.committed))
-	}
 }
 
 func TestConsumer_StartStopsWithoutCommitOnPlainErrors(t *testing.T) {
-	reader := &fakeReader{messages: []kafka.Message{
-		{Topic: "topic", Offset: 1, Key: []byte("retry"), Value: []byte(`{"ok":true}`)},
-	}}
+	ctrl := gomock.NewController(t)
+	reader := NewMockmessageReader(ctrl)
+	message := kafka.Message{Topic: "topic", Offset: 1, Key: []byte("retry"), Value: []byte(`{"ok":true}`)}
+	reader.EXPECT().FetchMessage(gomock.Any()).Return(message, nil)
 	consumer := newConsumer(reader, "topic", "group", nil)
 	retryErr := errors.New("database down")
 
@@ -158,17 +205,17 @@ func TestConsumer_StartStopsWithoutCommitOnPlainErrors(t *testing.T) {
 	if !errors.Is(err, retryErr) {
 		t.Fatalf("Start() error = %v, want %v", err, retryErr)
 	}
-	if len(reader.committed) != 0 {
-		t.Fatalf("committed offsets = %#v, want none", committedOffsets(reader.committed))
-	}
 }
 
 func TestConsumer_StartReturnsCommitErrorForSkippedMessage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reader := NewMockmessageReader(ctrl)
 	commitErr := errors.New("commit failed")
-	reader := &fakeReader{
-		messages:  []kafka.Message{{Topic: "topic", Offset: 1, Value: []byte("bad")}},
-		commitErr: commitErr,
-	}
+	message := kafka.Message{Topic: "topic", Offset: 1, Value: []byte("bad")}
+	gomock.InOrder(
+		reader.EXPECT().FetchMessage(gomock.Any()).Return(message, nil),
+		reader.EXPECT().CommitMessages(gomock.Any(), message).Return(commitErr),
+	)
 	consumer := newConsumer(reader, "topic", "group", nil)
 
 	err := consumer.Start(context.Background(), func(context.Context, string, []byte) error {
@@ -181,12 +228,30 @@ func TestConsumer_StartReturnsCommitErrorForSkippedMessage(t *testing.T) {
 }
 
 func TestConsumer_StartPublishesNonRetryableErrorsToDLQBeforeCommit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reader := NewMockmessageReader(ctrl)
+	publisher := NewMockDeadLetterPublisher(ctrl)
 	ctx, cancel := context.WithCancel(context.Background())
-	reader := &fakeReader{messages: []kafka.Message{
-		{Topic: "source-topic", Partition: 2, Offset: 42, Key: []byte("bad-key"), Value: []byte("not-json")},
-		{Topic: "source-topic", Partition: 2, Offset: 43, Key: []byte("good-key"), Value: []byte(`{"ok":true}`)},
-	}}
-	publisher := &fakeDeadLetterPublisher{}
+	bad := kafka.Message{Topic: "source-topic", Partition: 2, Offset: 42, Key: []byte("bad-key"), Value: []byte("not-json")}
+	good := kafka.Message{Topic: "source-topic", Partition: 2, Offset: 43, Key: []byte("good-key"), Value: []byte(`{"ok":true}`)}
+	var dlqTopic string
+	var dlqKey string
+	var dlqValue []byte
+	gomock.InOrder(
+		reader.EXPECT().FetchMessage(ctx).Return(bad, nil),
+		publisher.EXPECT().
+			Publish(ctx, "source-topic.dlq", "bad-key", gomock.Any()).
+			DoAndReturn(func(_ context.Context, topic, key string, value []byte) error {
+				dlqTopic = topic
+				dlqKey = key
+				dlqValue = value
+				return nil
+			}),
+		reader.EXPECT().CommitMessages(ctx, bad).Return(nil),
+		reader.EXPECT().FetchMessage(ctx).Return(good, nil),
+		reader.EXPECT().CommitMessages(ctx, good).Return(nil),
+		reader.EXPECT().FetchMessage(ctx).Return(kafka.Message{}, context.Canceled),
+	)
 	consumer := newConsumer(reader, "source-topic", "consumer-group", nil).
 		WithDeadLetter("source-topic.dlq", publisher)
 
@@ -203,18 +268,12 @@ func TestConsumer_StartPublishesNonRetryableErrorsToDLQBeforeCommit(t *testing.T
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if len(publisher.messages) != 1 {
-		t.Fatalf("published DLQ messages = %d, want 1", len(publisher.messages))
-	}
-	if len(reader.committed) != 2 || reader.committed[0].Offset != 42 || reader.committed[1].Offset != 43 {
-		t.Fatalf("committed offsets = %#v, want 42 and 43", committedOffsets(reader.committed))
-	}
-	if publisher.messages[0].topic != "source-topic.dlq" || publisher.messages[0].key != "bad-key" {
-		t.Fatalf("published DLQ routing = (%q, %q)", publisher.messages[0].topic, publisher.messages[0].key)
+	if dlqTopic != "source-topic.dlq" || dlqKey != "bad-key" {
+		t.Fatalf("published DLQ routing = (%q, %q)", dlqTopic, dlqKey)
 	}
 
 	var event contracts.Envelope[contracts.DeadLetterPayload]
-	if err := json.Unmarshal(publisher.messages[0].value, &event); err != nil {
+	if err := json.Unmarshal(dlqValue, &event); err != nil {
 		t.Fatalf("DLQ value is not dead letter envelope: %v", err)
 	}
 	if event.EventType != contracts.EventConsumerDeadLettered {
@@ -231,12 +290,17 @@ func TestConsumer_StartPublishesNonRetryableErrorsToDLQBeforeCommit(t *testing.T
 }
 
 func TestConsumer_StartDoesNotCommitWhenDLQPublishFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reader := NewMockmessageReader(ctrl)
+	publisher := NewMockDeadLetterPublisher(ctrl)
 	publishErr := errors.New("dlq publish failed")
-	reader := &fakeReader{messages: []kafka.Message{
-		{Topic: "source-topic", Offset: 42, Key: []byte("bad-key"), Value: []byte("not-json")},
-	}}
+	message := kafka.Message{Topic: "source-topic", Offset: 42, Key: []byte("bad-key"), Value: []byte("not-json")}
+	gomock.InOrder(
+		reader.EXPECT().FetchMessage(gomock.Any()).Return(message, nil),
+		publisher.EXPECT().Publish(gomock.Any(), "source-topic.dlq", "bad-key", gomock.Any()).Return(publishErr),
+	)
 	consumer := newConsumer(reader, "source-topic", "consumer-group", nil).
-		WithDeadLetter("source-topic.dlq", &fakeDeadLetterPublisher{err: publishErr})
+		WithDeadLetter("source-topic.dlq", publisher)
 
 	err := consumer.Start(context.Background(), func(context.Context, string, []byte) error {
 		return NonRetryable(errors.New("malformed message"))
@@ -245,15 +309,4 @@ func TestConsumer_StartDoesNotCommitWhenDLQPublishFails(t *testing.T) {
 	if !errors.Is(err, publishErr) {
 		t.Fatalf("Start() error = %v, want %v", err, publishErr)
 	}
-	if len(reader.committed) != 0 {
-		t.Fatalf("committed offsets = %#v, want none", committedOffsets(reader.committed))
-	}
-}
-
-func committedOffsets(messages []kafka.Message) []int64 {
-	offsets := make([]int64, 0, len(messages))
-	for _, message := range messages {
-		offsets = append(offsets, message.Offset)
-	}
-	return offsets
 }
