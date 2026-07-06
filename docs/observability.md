@@ -21,10 +21,11 @@ Subber uses three observability paths:
 | Log collector | Vector | http://localhost:8686 |
 | Metrics scraper | Prometheus | http://localhost:9090 |
 | Metrics dashboards | Grafana | http://localhost:3000 |
+| Kafka exporter | Kafka consumer lag metrics | http://localhost:9308/metrics |
 
-Prometheus scrapes all three services. Grafana is provisioned with a Prometheus datasource and the `Subber Overview` dashboard.
+Prometheus scrapes all three services and `kafka-exporter`. Grafana is provisioned with a Prometheus datasource and the `Subber Overview` dashboard.
 
-Kibana is included for log inspection against Elasticsearch. The restored dashboard artifact is stored at [deployments/docker/kibana/dashboards.ndjson](../deployments/docker/kibana/dashboards.ndjson) and is mounted into the Kibana container at `/usr/share/kibana/dashboards/subber-dashboard.ndjson`.
+Kibana is included for log inspection against Elasticsearch. The restored dashboard artifact is stored at [deployments/docker/kibana/dashboards.ndjson](../deployments/docker/kibana/dashboards.ndjson) and is mounted into the `kibana-import` container at `/tmp/dashboards.ndjson`.
 
 ## Run
 
@@ -67,10 +68,11 @@ Current status:
 * `subscription-api` exposes `/metrics`;
 * `scanner-service` exposes `/metrics`;
 * `notification-service` exposes `/metrics`;
+* `kafka-exporter` exposes Kafka topic, consumer group, and lag metrics;
 * Prometheus scrape config lives in [deployments/docker/prometheus/prometheus.yml](../deployments/docker/prometheus/prometheus.yml).
 * Grafana provisioning lives in [deployments/docker/grafana/provisioning](../deployments/docker/grafana/provisioning).
 
-Expected metric groups:
+Application metric groups:
 
 * HTTP RED metrics for `subscription-api`;
 * scanner claim/scan/release counters;
@@ -96,11 +98,20 @@ Prometheus evaluates a small alert set from [deployments/docker/prometheus/alert
 * outbox backlog above 20 unpublished events for 10 minutes;
 * at least one notification delivery ending in dead state within 10 minutes.
 
+* `subber_subscription_requests_total`;
+* `subber_outbox_pending`;
+* `subber_outbox_failed`;
+* `subber_outbox_publish_attempts`;
+* `subber_notifications_sent_total`;
+* `subber_notifications_failed_total`;
+* `subber_notifications_retried_total`;
+* `subber_notifications_dead_total`;
+* `subber_kafka_consumer_processed_total`;
+* `subber_kafka_consumer_failed_total`;
+* `subber_kafka_consumer_skipped_total`.
 These alerts are intentionally narrow so they page only on service availability or clear user-facing degradation. There is no alert on `/metrics`, `/static`, or low-signal internal noise.
 
-### Tracing
-
-Distributed tracing with OpenTelemetry means every request or event workflow gets a trace id and spans for each hop. In practice it lets you click from one slow or failed request in `subscription-api` through `scanner-service` and `notification-service` without guessing which logs belong together. We do not have it wired here yet, but that is the next sensible step after logs and metrics.
+Kafka lag is monitored through `kafka-exporter`, not through application code.
 
 ## Smoke Checks
 
@@ -111,6 +122,7 @@ Runtime smoke should verify:
 * services connect to Kafka;
 * Redis is available for scanner cache;
 * migrations run;
+* Kafka exporter is scraped by Prometheus;
 * Vector starts and accepts logs by default.
 * Kibana is ready for Elasticsearch log inspection.
 * Prometheus is ready and sees all three service targets as `up`.

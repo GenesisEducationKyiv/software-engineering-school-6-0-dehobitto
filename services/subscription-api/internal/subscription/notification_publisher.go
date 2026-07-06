@@ -61,38 +61,28 @@ func (p *OutboxNotificationPublisher) PublishConfirmationTx(ctx context.Context,
 }
 
 func (p *OutboxNotificationPublisher) PublishReleaseNotification(ctx context.Context, email, repo, tag, correlationID string) error {
-	return p.PublishReleaseNotifications(ctx, []string{email}, repo, tag, correlationID)
-}
-
-func (p *OutboxNotificationPublisher) PublishReleaseNotifications(ctx context.Context, emails []string, repo, tag, correlationID string) error {
-	if len(emails) == 0 {
-		return nil
-	}
-
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin release notifications: %w", err)
+		return fmt.Errorf("begin release notification: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	for _, email := range emails {
-		notificationID := uuid.NewString()
-		event, raw, err := buildReleaseNotification(email, repo, tag, notificationID, correlationID, time.Now().UTC())
-		if err != nil {
-			return fmt.Errorf("marshal release notification: %w", err)
-		}
-		if err := outbox.InsertTx(ctx, tx, outbox.Event{
-			EventID:       notificationID,
-			EventType:     contracts.EventNotificationRequested,
-			OccurredAt:    event.OccurredAt,
-			Source:        "subscription-api",
-			CorrelationID: correlationID,
-			Topic:         contracts.TopicNotificationCommands,
-			KafkaKey:      event.Payload.EmailHash,
-			Payload:       raw,
-		}); err != nil {
-			return err
-		}
+	notificationID := uuid.NewString()
+	event, raw, err := buildReleaseNotification(email, repo, tag, notificationID, correlationID, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("marshal release notification: %w", err)
+	}
+	if err := outbox.InsertTx(ctx, tx, outbox.Event{
+		EventID:       notificationID,
+		EventType:     contracts.EventNotificationRequested,
+		OccurredAt:    event.OccurredAt,
+		Source:        "subscription-api",
+		CorrelationID: correlationID,
+		Topic:         contracts.TopicNotificationCommands,
+		KafkaKey:      event.Payload.EmailHash,
+		Payload:       raw,
+	}); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }

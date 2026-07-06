@@ -1,0 +1,3 @@
+CREATE TABLE widgets (
+	id BIGSERIAL PRIMARY KEY
+);

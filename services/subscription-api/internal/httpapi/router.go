@@ -187,11 +187,7 @@ func requestIDMiddleware() gin.HandlerFunc {
 
 func apiKeyAuth(apiKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if apiKey == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-			return
-		}
-		if c.GetHeader("X-API-Key") == apiKey {
+		if apiKey == "" || c.GetHeader("X-API-Key") == apiKey {
 			c.Next()
 			return
 		}

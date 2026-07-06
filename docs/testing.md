@@ -1,6 +1,6 @@
 # Testing
 
-Prerequisites: **Go**, **Docker**, and Docker Compose `2.20.3` or newer.
+Prerequisites: Go, Docker, and Docker Compose `2.20.3` or newer.
 
 ## Unit Tests
 
@@ -10,21 +10,29 @@ go test ./pkg/... ./services/subscription-api/... ./services/scanner-service/...
 
 ## Integration Tests
 
-PostgreSQL spins up automatically through testcontainers. Docker must be running.
+PostgreSQL starts automatically through testcontainers. Docker must be running.
 
 ```sh
-go test -tags integration ./tests/integration/... ./services/subscription-api/...
+go test -tags integration ./tests/integration/... ./services/subscription-api/internal/integration/...
 ```
 
-## Compose Validation
+## Full E2E
+
+The full E2E script starts from a clean Docker Compose stack, builds images, runs migrations, starts services, and runs Playwright.
 
 ```sh
-docker compose -f compose.microservices.yml config --quiet
+sh scripts/e2e.sh
+```
+
+or:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1
 ```
 
 ## Runtime Smoke
 
-Runtime smoke validates that the local stack is alive: service endpoints, metrics endpoints, Prometheus targets, Grafana provisioning, Kafka topics, Mailpit, Elasticsearch, Kibana, and Vector log indexing.
+Runtime smoke validates compose config, HTTP endpoints, metrics endpoints, Prometheus targets, Grafana provisioning, Kafka topics, Mailpit, Elasticsearch, Kibana, and Vector log indexing.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/runtime-smoke.ps1
@@ -50,7 +58,7 @@ START_STACK=true BUILD=true sh scripts/runtime-smoke.sh
 
 ## Kafka E2E
 
-Kafka E2E verifies the business flow through the message bus:
+Kafka E2E verifies the asynchronous business flow:
 
 ```text
 subscribe
@@ -74,22 +82,20 @@ sh scripts/kafka-e2e.sh
 
 ## Load Test
 
-The load test uses `k6` and targets the running subscription API. If `k6` is not installed locally, run it through Docker.
+The load test uses `k6` against a running subscription API.
 
 ```powershell
 docker run --rm -i `
   -e BASE_URL=http://host.docker.internal:8080 `
-  -e API_KEY=dev-api-key `
+  -e API_KEY= `
   -v ${PWD}/scripts:/scripts `
   grafana/k6 run /scripts/loadtest.js
 ```
 
-Use a different target URL or API key when needed by changing `BASE_URL` and `API_KEY`.
-
 ```sh
 docker run --rm -i \
   -e BASE_URL=http://host.docker.internal:8080 \
-  -e API_KEY=dev-api-key \
+  -e API_KEY= \
   -v "$PWD/scripts:/scripts" \
   grafana/k6 run /scripts/loadtest.js
 ```

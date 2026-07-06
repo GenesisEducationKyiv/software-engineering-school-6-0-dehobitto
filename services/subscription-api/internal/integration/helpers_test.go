@@ -18,6 +18,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"subber/pkg/contracts"
+	"subber/services/subscription-api/internal/dbmigrations"
 	"subber/services/subscription-api/internal/httpapi"
 	"subber/services/subscription-api/internal/subscription"
 )
@@ -54,7 +55,7 @@ func run(m *testing.M) int {
 	}
 	defer sharedPool.Close()
 
-	if err := subscription.Migrate(ctx, sharedPool); err != nil {
+	if err := dbmigrations.Run(ctx, sharedPool); err != nil {
 		panic(err)
 	}
 

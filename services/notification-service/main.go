@@ -44,20 +44,12 @@ func run() error {
 		return fmt.Errorf("connect notification database: %w", err)
 	}
 	defer pool.Close()
-
-	if err := delivery.Migrate(context.Background(), pool); err != nil {
-		return err
-	}
-	if err := outbox.Migrate(context.Background(), pool); err != nil {
-		return err
-	}
-	prometheus.MustRegister(
-		delivery.NotificationSentTotal,
-		delivery.NotificationDeadTotal,
-		outbox.NewBacklogGauge(pool, "notification-service"),
-	)
-
+	prometheus.MustRegister(outbox.NewCollector(pool, "notification-service"))
 	repo := delivery.NewRepository(pool)
+
+	producer := kafka.NewProducer(cfg.KafkaBrokers)
+	defer producer.Close() //nolint:errcheck
+
 	service := delivery.NewService(
 		repo,
 		email.NewSMTPSender(email.Config{
@@ -66,11 +58,12 @@ func run() error {
 			SMTPEmail:    cfg.SMTPEmail,
 			SMTPPassword: cfg.SMTPPassword,
 		}),
+		delivery.NewKafkaRetryPublisher(producer),
 		log.WithField("component", "delivery"),
 		cfg.NotificationRetryAttempts,
 		cfg.NotificationRetryDelays,
 	)
-	retryRelay := delivery.NewRetryRelay(repo, service, 100, time.Second)
+	retryScheduler := delivery.NewRetryScheduler(repo, log.WithField("component", "retry-scheduler"), 100, time.Second)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -80,23 +73,26 @@ func run() error {
 		return metrics.Serve(ctx, ":"+cfg.MetricsPort)
 	})
 	group.Go(func() error {
-		return retryRelay.Start(ctx)
+		return retryScheduler.Start(ctx)
 	})
-
 	for _, topic := range []string{
 		contracts.TopicNotificationCommands,
 	} {
 		topic := topic
-		consumer := kafka.NewConsumer(cfg.KafkaBrokers, topic, "notification-service")
+		consumer := kafka.NewConsumerWithLogger(cfg.KafkaBrokers, topic, "notification-service", log.WithField("component", "kafka-consumer").WithField("topic", topic)).
+			WithDeadLetter(contracts.TopicNotificationDLQ, producer)
 		defer consumer.Close() //nolint:errcheck
 		prometheus.MustRegister(kafka.NewConsumerLagGauge("notification-service", topic, consumer))
 		group.Go(func() error {
 			return consumer.Start(ctx, func(ctx context.Context, _ string, value []byte) error {
 				var event contracts.Envelope[contracts.NotificationSendRequestedPayload]
 				if err := json.Unmarshal(value, &event); err != nil {
-					return fmt.Errorf("decode notification command: %w", err)
+					return kafka.NonRetryable(fmt.Errorf("decode notification command: %w", err))
 				}
-				return service.Process(ctx, event.Payload, event.CorrelationID)
+				if event.EventType != contracts.EventNotificationRequested {
+					return kafka.NonRetryable(fmt.Errorf("unsupported notification event type %q", event.EventType))
+				}
+				return service.Process(ctx, event.Payload)
 			})
 		})
 	}

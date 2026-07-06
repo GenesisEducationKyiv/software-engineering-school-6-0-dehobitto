@@ -11,6 +11,4 @@ COPY services/subscription-api/static/ ./static/
 ENV STATIC_DIR=./static
 ENV CI=true
 
-RUN npx playwright install --with-deps chromium
-
 CMD ["npx", "playwright", "test"]

@@ -18,10 +18,10 @@ type Config struct {
 
 func Load() *Config {
 	return &Config{
-		Database:   sharedconfig.LoadDatabase("subber_api"),
-		ServerPort: env.String("PORT", "8080"),
+		Database:   sharedconfig.LoadDatabase(),
+		ServerPort: env.String("PORT", ""),
 		APIKey:     env.String("API_KEY", ""),
-		BaseURL:    env.String("BASE_URL", "http://localhost:8080"),
+		BaseURL:    env.String("BASE_URL", ""),
 		Kafka:      sharedconfig.LoadKafka(),
 		GitHub:     sharedconfig.LoadGitHub(),
 		Logging:    sharedconfig.LoadLogging(),

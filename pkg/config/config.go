@@ -13,13 +13,13 @@ type Database struct {
 	DBName     string
 }
 
-func LoadDatabase(defaultDBName string) Database {
+func LoadDatabase() Database {
 	return Database{
-		DBHost:     env.String("DB_HOST", "localhost"),
-		DBPort:     env.String("DB_PORT", "5432"),
-		DBUser:     env.String("DB_USER", "postgres"),
-		DBPassword: env.String("DB_PASSWORD", "postgres"),
-		DBName:     env.String("DB_NAME", defaultDBName),
+		DBHost:     env.String("DB_HOST", ""),
+		DBPort:     env.String("DB_PORT", ""),
+		DBUser:     env.String("DB_USER", ""),
+		DBPassword: env.String("DB_PASSWORD", ""),
+		DBName:     env.String("DB_NAME", ""),
 	}
 }
 
@@ -39,7 +39,7 @@ type Kafka struct {
 
 func LoadKafka() Kafka {
 	return Kafka{
-		KafkaBrokers: env.CSV("KAFKA_BROKERS", "kafka:9092"),
+		KafkaBrokers: env.CSV("KAFKA_BROKERS", ""),
 	}
 }
 
@@ -51,7 +51,7 @@ type GitHub struct {
 func LoadGitHub() GitHub {
 	return GitHub{
 		GitHubToken:   env.String("GITHUB_TOKEN", ""),
-		GitHubBaseURL: env.String("GITHUB_BASE_URL", "https://api.github.com"),
+		GitHubBaseURL: env.String("GITHUB_BASE_URL", ""),
 	}
 }
 
@@ -64,10 +64,10 @@ type Logging struct {
 
 func LoadLogging() Logging {
 	return Logging{
-		LogLevel:          env.String("LOG_LEVEL", "info"),
+		LogLevel:          env.String("LOG_LEVEL", ""),
 		LogFile:           env.String("LOG_FILE", ""),
-		LogSidecarEnabled: env.Bool("LOG_SIDECAR_ENABLED", true),
-		LogSidecarURL:     env.String("LOG_SIDECAR_URL", "http://vector:8686"),
+		LogSidecarEnabled: env.Bool("LOG_SIDECAR_ENABLED", false),
+		LogSidecarURL:     env.String("LOG_SIDECAR_URL", ""),
 	}
 }
 
@@ -75,8 +75,8 @@ type Metrics struct {
 	MetricsPort string
 }
 
-func LoadMetrics(defaultPort string) Metrics {
+func LoadMetrics() Metrics {
 	return Metrics{
-		MetricsPort: env.String("METRICS_PORT", defaultPort),
+		MetricsPort: env.String("METRICS_PORT", ""),
 	}
 }
