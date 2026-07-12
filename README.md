@@ -101,6 +101,7 @@ Kafka/outbox remains the more durable option: it stores the notification intent 
 * [Testing](docs/testing.md)
 * [Observability](docs/observability.md)
 * [Logging](docs/logging.md)
+* [Architecture layers](docs/architecture-layers.md)
 * [gRPC notification transport](docs/grpc-notification-transport.md)
 * [Architecture delta](docs/SDD-changelog.md)
 * [Original SDD](docs/SDD.md)

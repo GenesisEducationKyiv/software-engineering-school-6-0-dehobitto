@@ -8,6 +8,14 @@ Prerequisites: Go, Docker, and Docker Compose `2.20.3` or newer.
 go test ./pkg/... ./services/subscription-api/... ./services/scanner-service/... ./services/notification-service/...
 ```
 
+## Architecture Tests
+
+Architecture tests verify service boundaries and layer dependency rules without Docker.
+
+```sh
+go test ./tests/architecture
+```
+
 ## Integration Tests
 
 PostgreSQL starts automatically through testcontainers. Docker must be running.
