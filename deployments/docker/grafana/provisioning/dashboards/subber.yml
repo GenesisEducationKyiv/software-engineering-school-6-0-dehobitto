@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Subber
+    orgId: 1
+    folder: Subber
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

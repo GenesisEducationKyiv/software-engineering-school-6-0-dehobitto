@@ -1,0 +1,67 @@
+groups:
+  - name: subber-core-alerts
+    rules:
+      - alert: SubberServiceDown
+        expr: up{job=~"subscription-api|scanner-service|notification-service"} == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "{{ $labels.job }} has been unreachable for at least 5 minutes."
+
+      - alert: SubscriptionAPIHighErrorRate
+        expr: |
+          (
+            sum(rate(subber_http_requests_total{status=~"5.."}[10m]))
+            /
+            sum(rate(subber_http_requests_total[10m]))
+          ) > 0.05
+          and sum(rate(subber_http_requests_total[10m])) > 0.1
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "subscription-api 5xx rate is high"
+          description: "More than 5% of API requests returned 5xx for 10 minutes."
+
+      - alert: SubscriptionAPIHighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(subber_http_request_duration_seconds_bucket[10m])) by (le)
+          ) > 1
+          and sum(rate(subber_http_requests_total[10m])) > 0.1
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "subscription-api latency is high"
+          description: "The 95th percentile HTTP latency for API requests has been above 1s for 10 minutes."
+
+      - alert: KafkaConsumerLagHigh
+        expr: max by (service, topic) (subber_kafka_consumer_lag) > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag is growing"
+          description: "Consumer lag for {{ $labels.service }} on {{ $labels.topic }} has been above 100 messages for 10 minutes."
+
+      - alert: OutboxBacklogHigh
+        expr: subber_outbox_backlog > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox backlog is growing"
+          description: "Outbox backlog for {{ $labels.service }} has been above 20 unpublished events for 10 minutes."
+
+      - alert: NotificationDeadDelivery
+        expr: increase(subber_notification_dead_total[10m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notification deliveries are ending up dead"
+          description: "notification-service has moved at least one delivery to dead state in the last 10 minutes."

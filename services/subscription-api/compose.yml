@@ -1,0 +1,75 @@
+services:
+  subscription-api-migrate:
+    build:
+      context: ../..
+      dockerfile: services/subscription-api/Dockerfile
+      args:
+        TARGET: ./cmd/migrate
+    env_file:
+      - ../../deployments/docker/env/common.env.example
+      - .env.example
+    depends_on:
+      vector:
+        condition: service_started
+      postgres-api:
+        condition: service_healthy
+
+  subscription-api:
+    build:
+      context: ../..
+      dockerfile: services/subscription-api/Dockerfile
+    env_file:
+      - ../../deployments/docker/env/common.env.example
+      - .env.example
+    environment:
+      NOTIFICATION_TRANSPORT: ${NOTIFICATION_TRANSPORT:-kafka}
+      NOTIFICATION_GRPC_ADDR: ${NOTIFICATION_GRPC_ADDR:-notification-service:9093}
+    ports:
+      - "8080:8080"
+    depends_on:
+      vector:
+        condition: service_started
+      kafka-topics-init:
+        condition: service_completed_successfully
+      postgres-api:
+        condition: service_healthy
+      subscription-api-migrate:
+        condition: service_completed_successfully
+
+  subscription-api-outbox-relay:
+    build:
+      context: ../..
+      dockerfile: services/subscription-api/Dockerfile
+      args:
+        TARGET: ./cmd/outbox-relay
+    env_file:
+      - ../../deployments/docker/env/common.env.example
+      - .env.example
+    depends_on:
+      vector:
+        condition: service_started
+      kafka-topics-init:
+        condition: service_completed_successfully
+      postgres-api:
+        condition: service_healthy
+      subscription-api-migrate:
+        condition: service_completed_successfully
+
+  subscription-api-saga-orchestrator:
+    build:
+      context: ../..
+      dockerfile: services/subscription-api/Dockerfile
+      args:
+        TARGET: ./cmd/saga-orchestrator
+    env_file:
+      - ../../deployments/docker/env/common.env.example
+      - .env.example
+    depends_on:
+      vector:
+        condition: service_started
+      kafka-topics-init:
+        condition: service_completed_successfully
+      postgres-api:
+        condition: service_healthy
+      subscription-api-migrate:
+        condition: service_completed_successfully

@@ -1,0 +1,19 @@
+sources:
+  service_logs:
+    type: http_server
+    address: 0.0.0.0:8686
+    decoding:
+      codec: json
+
+sinks:
+  elasticsearch:
+    type: elasticsearch
+    inputs:
+      - service_logs
+    endpoints:
+      - ${ELASTICSEARCH_URL:-http://elasticsearch:9200}
+    bulk:
+      index: subber-logs-%Y.%m.%d
+    batch:
+      max_bytes: 524288
+      timeout_secs: 5

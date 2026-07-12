@@ -1,0 +1,30 @@
+name: 'Test: E2E'
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  test:
+    name: Run FE + BE E2E Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Run E2E tests
+        run: >
+          docker compose
+          -f compose.microservices.yml
+          -f tests/e2e/compose.yml
+          up --build --abort-on-container-exit --exit-code-from e2e e2e
+
+      - name: Cleanup E2E environment
+        if: always()
+        run: >
+          docker compose
+          -f compose.microservices.yml
+          -f tests/e2e/compose.yml
+          down -v --remove-orphans

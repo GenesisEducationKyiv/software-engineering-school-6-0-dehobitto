@@ -1,0 +1,290 @@
+asyncapi: 3.0.0
+info:
+  title: Subber Kafka Contracts
+  version: 1.0.0
+channels:
+  watchlistSagaRequests:
+    address: subber.watchlist.saga.requests
+    messages:
+      RepoWatchSagaRequested:
+        $ref: '#/components/messages/RepoWatchSagaRequested'
+  watchlistSagaCommands:
+    address: subber.watchlist.saga.commands
+    messages:
+      StartWatchingRepo:
+        $ref: '#/components/messages/StartWatchingRepo'
+      StopWatchingRepo:
+        $ref: '#/components/messages/StopWatchingRepo'
+  watchlistSagaEvents:
+    address: subber.watchlist.saga.events
+    messages:
+      RepoWatchStarted:
+        $ref: '#/components/messages/RepoWatchStarted'
+      RepoWatchStopped:
+        $ref: '#/components/messages/RepoWatchStopped'
+      RepoWatchFailed:
+        $ref: '#/components/messages/RepoWatchFailed'
+  releaseEvents:
+    address: subber.release.events
+    messages:
+      ReleaseDetected:
+        $ref: '#/components/messages/ReleaseDetected'
+  notificationCommands:
+    address: subber.notification.commands
+    messages:
+      NotificationSendRequested:
+        $ref: '#/components/messages/NotificationSendRequested'
+  notificationRetry1m:
+    address: subber.notification.retry.1m
+    messages:
+      NotificationSendRequested:
+        $ref: '#/components/messages/NotificationSendRequested'
+  notificationRetry10m:
+    address: subber.notification.retry.10m
+    messages:
+      NotificationSendRequested:
+        $ref: '#/components/messages/NotificationSendRequested'
+  notificationDLQ:
+    address: subber.notification.dlq
+    messages:
+      NotificationSendRequested:
+        $ref: '#/components/messages/NotificationSendRequested'
+operations:
+  publishWatchlistSagaRequests:
+    action: send
+    channel:
+      $ref: '#/channels/watchlistSagaRequests'
+  consumeWatchlistSagaRequests:
+    action: receive
+    channel:
+      $ref: '#/channels/watchlistSagaRequests'
+  publishWatchlistCommands:
+    action: send
+    channel:
+      $ref: '#/channels/watchlistSagaCommands'
+  consumeWatchlistCommands:
+    action: receive
+    channel:
+      $ref: '#/channels/watchlistSagaCommands'
+  publishWatchlistSagaEvents:
+    action: send
+    channel:
+      $ref: '#/channels/watchlistSagaEvents'
+  consumeWatchlistSagaEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/watchlistSagaEvents'
+  publishReleaseEvents:
+    action: send
+    channel:
+      $ref: '#/channels/releaseEvents'
+  consumeReleaseEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/releaseEvents'
+  publishNotificationCommands:
+    action: send
+    channel:
+      $ref: '#/channels/notificationCommands'
+  consumeNotificationCommands:
+    action: receive
+    channel:
+      $ref: '#/channels/notificationCommands'
+components:
+  messages:
+    RepoWatchSagaRequested:
+      name: RepoWatchSagaRequested
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/RepoWatchSagaEnvelope'
+    StartWatchingRepo:
+      name: StartWatchingRepo
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/RepoWatchCommandEnvelope'
+    StopWatchingRepo:
+      name: StopWatchingRepo
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/RepoWatchCommandEnvelope'
+    RepoWatchStarted:
+      name: RepoWatchStarted
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/RepoWatchAckEnvelope'
+    RepoWatchStopped:
+      name: RepoWatchStopped
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/RepoWatchAckEnvelope'
+    RepoWatchFailed:
+      name: RepoWatchFailed
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/RepoWatchAckEnvelope'
+    ReleaseDetected:
+      name: ReleaseDetected
+      x-kafka-key: repo
+      payload:
+        $ref: '#/components/schemas/ReleaseDetectedEnvelope'
+    NotificationSendRequested:
+      name: NotificationSendRequested
+      x-kafka-key: email_hash
+      payload:
+        $ref: '#/components/schemas/NotificationSendRequestedEnvelope'
+  schemas:
+    EnvelopeBase:
+      type: object
+      required:
+        - event_id
+        - event_type
+        - occurred_at
+        - source
+        - correlation_id
+        - payload
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        source:
+          type: string
+        correlation_id:
+          type: string
+          format: uuid
+    RepoWatchSagaEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            payload:
+              $ref: '#/components/schemas/RepoWatchSagaPayload'
+    RepoWatchCommandEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            payload:
+              $ref: '#/components/schemas/RepoWatchCommandPayload'
+    RepoWatchAckEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            payload:
+              $ref: '#/components/schemas/RepoWatchAckPayload'
+    ReleaseDetectedEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            payload:
+              $ref: '#/components/schemas/ReleaseDetectedPayload'
+    NotificationSendRequestedEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            payload:
+              $ref: '#/components/schemas/NotificationSendRequestedPayload'
+    RepoWatchSagaPayload:
+      type: object
+      required:
+        - saga_id
+        - action
+        - repo
+      properties:
+        saga_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum: [start_watch, stop_watch]
+        repo:
+          type: string
+          example: gin-gonic/gin
+    RepoWatchCommandPayload:
+      type: object
+      required:
+        - saga_id
+        - action
+        - repo
+      properties:
+        saga_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum: [start_watch, stop_watch]
+        repo:
+          type: string
+          example: gin-gonic/gin
+    RepoWatchAckPayload:
+      type: object
+      required:
+        - saga_id
+        - action
+        - repo
+      properties:
+        saga_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum: [start_watch, stop_watch]
+        repo:
+          type: string
+          example: gin-gonic/gin
+        error:
+          type: string
+          description: Present only for RepoWatchFailed.
+    ReleaseDetectedPayload:
+      type: object
+      required:
+        - repo
+        - tag
+      properties:
+        repo:
+          type: string
+          example: gin-gonic/gin
+        tag:
+          type: string
+          example: v1.11.0
+    NotificationSendRequestedPayload:
+      type: object
+      description: Notification command payload. Confirmation notifications omit tag; release notifications include tag.
+      required:
+        - notification_id
+        - idempotency_key
+        - recipient_email
+        - email_hash
+        - repo
+        - message
+      properties:
+        notification_id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+          example: gin-gonic/gin:v1.11.0:ab12cd34ef56
+        recipient_email:
+          type: string
+          format: email
+        email_hash:
+          type: string
+          example: ab12cd34ef56
+        repo:
+          type: string
+          description: Repository related to the notification.
+          example: gin-gonic/gin
+        tag:
+          type: string
+          description: Release tag for release notifications; omitted for confirmation notifications.
+          example: v1.11.0
+        message:
+          type: string
+          description: User-facing email message body.
