@@ -21,6 +21,9 @@ services:
     env_file:
       - ../../deployments/docker/env/common.env.example
       - .env.example
+    environment:
+      NOTIFICATION_TRANSPORT: ${NOTIFICATION_TRANSPORT:-kafka}
+      NOTIFICATION_GRPC_ADDR: ${NOTIFICATION_GRPC_ADDR:-notification-service:9093}
     ports:
       - "8080:8080"
     depends_on:

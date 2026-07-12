@@ -1,0 +1,32 @@
+name: buf-lint
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  buf:
+    name: lint protobuf contracts
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
+
+      - name: buf lint
+        run: buf lint
+        working-directory: api/proto
+
+      - name: buf generate is up to date
+        run: |
+          buf generate
+          git diff --exit-code
+        working-directory: api/proto

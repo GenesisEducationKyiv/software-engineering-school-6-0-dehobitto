@@ -9,6 +9,7 @@ The system is split into three Go services connected through Kafka:
 * `notification-service` owns email delivery, idempotency, retries, and DLQ handling.
 
 Shared infrastructure code lives in `pkg`. Service-owned code stays under `services/*`.
+Notification commands can run through either the default Kafka/outbox transport or the direct gRPC transport documented in [gRPC notification transport](docs/grpc-notification-transport.md).
 
 ## Requirements
 
@@ -64,6 +65,7 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1
 | Subscription API metrics | http://localhost:8080/metrics |
 | Scanner metrics | http://localhost:8081/metrics |
 | Notification metrics | http://localhost:8082/metrics |
+| Notification gRPC | localhost:9093 |
 | Kafka | localhost:9092 |
 | Kafka exporter | http://localhost:9308/metrics |
 | Redis | localhost:6379 |
@@ -74,12 +76,32 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1
 | Kibana | http://localhost:5601 |
 | Vector | http://localhost:8686 |
 
+## Notification Transport Comparison
+
+Local A/B load comparison can be run with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/compare-notification-transports.ps1 -Build -Requests 200 -Concurrency 20
+```
+
+Latest local result:
+
+| Metric | Result |
+| --- | --- |
+| gRPC - Kafka RPS delta | `+91.55 req/s` |
+| gRPC - Kafka p95 latency delta | `-562.88 ms` |
+
+The delta is calculated as `grpc_value - kafka_value`. In this local run, gRPC handled more requests per second and had lower p95 latency because it skips outbox persistence, relay polling, Kafka broker round trips, and consumer dispatch for the initial notification command.
+
+Kafka/outbox remains the more durable option: it stores the notification intent in the database and can deliver it later if `notification-service` is temporarily unavailable. gRPC is faster in this benchmark, but it depends on `notification-service` being available during the request.
+
 ## Docs
 
 * [Development](docs/development.md)
 * [Testing](docs/testing.md)
 * [Observability](docs/observability.md)
 * [Logging](docs/logging.md)
+* [gRPC notification transport](docs/grpc-notification-transport.md)
 * [Architecture delta](docs/SDD-changelog.md)
 * [Original SDD](docs/SDD.md)
 
@@ -87,3 +109,4 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1
 
 * [OpenAPI](api/openapi/subscription-api.yaml)
 * [AsyncAPI](api/asyncapi/subber-events.yaml)
+* [Protobuf](api/proto/notification/v1/notification.proto)
